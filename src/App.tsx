@@ -1,0 +1,31 @@
+import { useEffect } from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { Layout } from '@/components/layout/Layout';
+import { ToastContainer } from '@/components/ui/Toast';
+import { IOSPwaGuide } from '@/components/ui/IOSPwaGuide';
+import { fireDueLocalNotifications } from '@/lib/offlineNotify';
+import ListPage from '@/pages/ListPage';
+import ReportPage from '@/pages/ReportPage';
+import SettingsPage from '@/pages/SettingsPage';
+
+export default function App() {
+  useEffect(() => {
+    fireDueLocalNotifications().catch(() => {
+      /* ignore */
+    });
+  }, []);
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<ListPage />} />
+          <Route path="/report" element={<ReportPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+      <ToastContainer />
+      <IOSPwaGuide />
+    </BrowserRouter>
+  );
+}
