@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { ToastContainer } from '@/components/ui/Toast';
-import { IOSPwaGuide } from '@/components/ui/IOSPwaGuide';
+import { MobilePwaGuide } from '@/components/ui/MobilePwaGuide';
 import { fireDueLocalNotifications } from '@/lib/offlineNotify';
 import ListPage from '@/pages/ListPage';
 import ReportPage from '@/pages/ReportPage';
@@ -25,7 +25,7 @@ export default function App() {
         </Route>
       </Routes>
       <ToastContainer />
-      <IOSPwaGuide />
+      <MobilePwaGuide />
     </BrowserRouter>
   );
 }
