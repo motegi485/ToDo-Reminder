@@ -27,7 +27,7 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(data.title, {
       body: data.body,
       icon: '/icons/icon-192.png',
-      badge: '/icons/icon.svg',
+      badge: '/icons/icon-192.png',
       tag: data.task_id,
       data: { task_id: data.task_id },
     }),

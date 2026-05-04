@@ -1,6 +1,6 @@
 {
   "name": "ToDo リマインダー",
-  "short_name": "ToDo",
+  "short_name": "ToDo リマインダー",
   "description": "オフライン対応のシンプルな ToDo リマインダー",
   "start_url": "/",
   "scope": "/",
@@ -10,12 +10,6 @@
   "theme_color": "#0f172a",
   "lang": "ja",
   "icons": [
-    {
-      "src": "/icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
