@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Toggle } from '@/components/ui/Toggle';
 import { REMINDER_PRESETS } from '@/lib/constants';
 
@@ -21,12 +22,17 @@ export function ReminderField({
   disabled,
 }: Props) {
   const isCustom = offset !== null && !PRESET_VALUES.includes(offset as 30 | 60 | 1440);
+  const [localValue, setLocalValue] = useState<string>(() =>
+    isCustom && offset !== null ? String(offset) : ''
+  );
 
   const handlePresetChange = (value: string) => {
     if (value === 'custom') {
       onOffsetChange(15);
+      setLocalValue('15');
     } else {
       onOffsetChange(Number(value));
+      setLocalValue('');
     }
   };
 
@@ -57,10 +63,13 @@ export function ReminderField({
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                value={offset ?? ''}
+                value={localValue}
                 onChange={(e) => {
                   const v = e.target.value.replace(/[^0-9]/g, '');
-                  onOffsetChange(v === '' ? null : Number(v));
+                  setLocalValue(v);
+                  if (v !== '') {
+                    onOffsetChange(Number(v));
+                  }
                 }}
                 className="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right"
               />
