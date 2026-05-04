@@ -4,6 +4,15 @@ import { calcReminderTime } from './reminder';
 import { calcNextDueDate } from './recurrence';
 import type { RecurrenceRule, Task, TaskType } from '@/types';
 
+function generateId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export interface TaskInput {
   title: string;
   type: TaskType;
@@ -38,7 +47,7 @@ function buildTask(input: TaskInput, base?: Task): Task {
   const targetValue = isQuantitative ? (input.target_value ?? 1) : null;
 
   return {
-    id: base?.id ?? crypto.randomUUID(),
+    id: base?.id ?? generateId(),
     sync_code: base?.sync_code ?? syncCode(),
     title: input.title.trim(),
     type: input.type,
@@ -83,7 +92,7 @@ function generateRecurrenceTask(base: Task): Task | null {
     base.reminder_offset !== null ? calcReminderTime(newDue, base.reminder_offset) : null;
   const now = Date.now();
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     sync_code: base.sync_code,
     title: base.title,
     type: base.type,

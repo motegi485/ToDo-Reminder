@@ -51,11 +51,11 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   return (
     <div
       className={[
-        'relative flex items-stretch overflow-hidden rounded-lg border bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 transition-opacity transition-transform duration-300',
+        'relative flex items-stretch rounded-lg border bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 transition-opacity transition-transform duration-300',
         completed ? 'opacity-50' : 'opacity-100',
       ].join(' ')}
     >
-      <div className={`w-1 ${accent.bg}`} aria-hidden />
+      <div className={`w-1 rounded-l-lg ${accent.bg}`} aria-hidden />
       <div className="flex-1 flex items-start gap-3 p-3">
         <button
           type="button"
@@ -118,7 +118,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               <MoreVertical size={18} />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-10 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-sm">
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-sm">
                 <button
                   type="button"
                   className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
