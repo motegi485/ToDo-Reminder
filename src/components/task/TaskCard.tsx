@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MoreVertical } from 'lucide-react';
 import { accentFor } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
-import { completeTask, deleteTask, uncompleteTask } from '@/lib/taskRepo';
+import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
 import { vibrate } from '@/hooks/useHaptic';
 import { formatDueLabel } from '@/lib/format';
 import type { Task } from '@/types';
@@ -18,7 +18,10 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const accent = accentFor(task.type, !!task.due_date);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showQuantModal, setShowQuantModal] = useState(false);
+  const [completionDraft, setCompletionDraft] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+  const quantInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -37,9 +40,21 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
     vibrate();
     if (completed) {
       await uncompleteTask(task.id);
+    } else if (task.type === 'quantitative') {
+      setCompletionDraft('');
+      setShowQuantModal(true);
+      requestAnimationFrame(() => quantInputRef.current?.focus());
     } else {
       await completeTask(task.id);
     }
+  };
+
+  const handleQuantCommit = async () => {
+    const delta = Number(completionDraft);
+    if (!Number.isFinite(delta) || delta <= 0) return;
+    const newVal = (task.current_value ?? 0) + Math.floor(delta);
+    await setQuantitativeValue(task.id, newVal);
+    setShowQuantModal(false);
   };
 
   const handleDelete = async () => {
@@ -141,6 +156,56 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           </div>
         )}
       </div>
+      {showQuantModal && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
+          onClick={() => setShowQuantModal(false)}
+        >
+          <div
+            className="m-4 max-w-sm w-full rounded-2xl bg-white dark:bg-slate-900 p-5 space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-medium text-slate-900 dark:text-slate-100">進捗を記録</div>
+            <div className="flex gap-4 text-sm text-slate-600 dark:text-slate-400">
+              <span>現在値: <span className="font-medium text-slate-900 dark:text-slate-100">{task.current_value ?? 0}</span></span>
+              <span>目標値: <span className="font-medium text-slate-900 dark:text-slate-100">{task.target_value ?? 0}</span></span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-slate-600 dark:text-slate-400 shrink-0">完了値:</label>
+              <input
+                ref={quantInputRef}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={completionDraft}
+                onChange={(e) => setCompletionDraft(e.target.value.replace(/[^0-9]/g, ''))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); void handleQuantCommit(); }
+                  else if (e.key === 'Escape') setShowQuantModal(false);
+                }}
+                className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                placeholder="0"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800"
+                onClick={() => setShowQuantModal(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-lg text-sm text-white ${accentFor(task.type, !!task.due_date).bg}`}
+                onClick={() => void handleQuantCommit()}
+              >
+                記録
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirmDelete && (
         <div
           className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
