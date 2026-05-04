@@ -32,4 +32,7 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+  .fab-bottom-safe {
+    bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
 }
