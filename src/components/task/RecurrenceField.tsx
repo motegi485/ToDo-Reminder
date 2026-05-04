@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Toggle } from '@/components/ui/Toggle';
 import type { RecurrenceRule, RecurrenceType } from '@/types';
 
@@ -20,11 +21,18 @@ export function RecurrenceField({
 }: Props) {
   const type: RecurrenceType = rule?.type ?? 'daily';
   const interval = rule?.interval ?? 1;
+  const [localValue, setLocalValue] = useState<string>(() =>
+    type === 'custom' ? String(interval) : ''
+  );
 
   const setType = (next: RecurrenceType) => {
     if (next === 'daily') onRuleChange({ type: 'daily', interval: 1 });
     else if (next === 'weekly') onRuleChange({ type: 'weekly', interval: 1 });
-    else onRuleChange({ type: 'custom', interval: Math.max(1, rule?.interval ?? 2) });
+    else {
+      const n = Math.max(1, rule?.interval ?? 2);
+      onRuleChange({ type: 'custom', interval: n });
+      setLocalValue(String(n));
+    }
   };
 
   return (
@@ -51,11 +59,13 @@ export function RecurrenceField({
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                value={interval}
+                value={localValue}
                 onChange={(e) => {
                   const v = e.target.value.replace(/[^0-9]/g, '');
-                  const n = v === '' ? 1 : Number(v);
-                  onRuleChange({ type: 'custom', interval: Math.max(1, n) });
+                  setLocalValue(v);
+                  if (v !== '') {
+                    onRuleChange({ type: 'custom', interval: Math.max(1, Number(v)) });
+                  }
                 }}
                 className="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right"
               />
