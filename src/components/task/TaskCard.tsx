@@ -50,10 +50,12 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
     }
   };
 
+  const quantDelta = Number(completionDraft);
+  const quantDeltaValid = Number.isFinite(quantDelta) && quantDelta > 0;
+
   const handleQuantCommit = async () => {
-    const delta = Number(completionDraft);
-    if (!Number.isFinite(delta) || delta <= 0) return;
-    const newVal = (task.current_value ?? 0) + Math.floor(delta);
+    if (!quantDeltaValid) return;
+    const newVal = (task.current_value ?? 0) + Math.floor(quantDelta);
     await setQuantitativeValue(task.id, newVal);
     setShowQuantModal(false);
   };
@@ -203,7 +205,8 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               </button>
               <button
                 type="button"
-                className={`px-3 py-1.5 rounded-lg text-sm text-white ${accentFor(task.type, !!task.due_date).bg}`}
+                disabled={!quantDeltaValid}
+                className={`px-3 py-1.5 rounded-lg text-sm text-white ${accentFor(task.type, !!task.due_date).bg} disabled:opacity-40 disabled:cursor-not-allowed`}
                 onClick={() => void handleQuantCommit()}
               >
                 記録

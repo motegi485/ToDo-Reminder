@@ -135,7 +135,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             id="task-title"
             type="text"
             value={values.title}
-            maxLength={250}
+            maxLength={200}
             onChange={(e) => setField('title', e.target.value)}
             placeholder="例: 牛乳を買う"
             className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
