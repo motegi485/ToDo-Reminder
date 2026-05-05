@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { normalizeSyncCode, isValidSyncCode } from '@/lib/syncCode';
 import { showToast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { switchSyncCode } from '@/lib/sync';
 
 export function SyncFromOtherDevice() {
   const [input, setInput] = useState('');
+  const [confirm, setConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
   const normalized = normalizeSyncCode(input);
   const valid = isValidSyncCode(normalized);
 
@@ -12,7 +16,21 @@ export function SyncFromOtherDevice() {
       showToast('同期コードの形式が正しくありません', 'warn');
       return;
     }
-    showToast('多端末同期はサーバー連携後に有効になります', 'info');
+    setConfirm(true);
+  };
+
+  const doSync = async () => {
+    setConfirm(false);
+    setLoading(true);
+    try {
+      await switchSyncCode(normalized);
+      showToast('同期が完了しました', 'success');
+      setInput('');
+    } catch {
+      showToast('同期に失敗しました', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -31,12 +49,20 @@ export function SyncFromOtherDevice() {
         <button
           type="button"
           onClick={handleSync}
-          disabled={!valid}
+          disabled={!valid || loading}
           className="px-3 py-2 rounded-lg text-sm bg-slate-900 text-white disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900"
         >
-          同期する
+          {loading ? '同期中...' : '同期する'}
         </button>
       </div>
+      <ConfirmDialog
+        open={confirm}
+        title="他端末と同期しますか？"
+        description="現在のタスクをサーバーにアップしてから切り替えます。切り替え後は入力したコードのタスクに置き換わります。"
+        confirmLabel="同期する"
+        onConfirm={() => { void doSync(); }}
+        onCancel={() => setConfirm(false)}
+      />
     </section>
   );
 }

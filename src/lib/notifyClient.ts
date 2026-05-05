@@ -1,3 +1,5 @@
+import { storage } from '@/lib/storage';
+import { api } from '@/lib/api';
 import { showToast } from '@/components/ui/Toast';
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
@@ -15,5 +17,30 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 }
 
 export async function subscribePush(): Promise<void> {
-  showToast('Push 購読はサーバー連携後に有効になります', 'info');
+  const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  if (!vapidPublicKey) {
+    showToast('Push 購読はサーバー連携後に有効になります', 'info');
+    return;
+  }
+
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    showToast('このブラウザは Web Push をサポートしていません', 'warn');
+    return;
+  }
+
+  const syncCode = storage.getSyncCode();
+  if (!syncCode) return;
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: vapidPublicKey,
+    });
+    await api.pushSubscribe(syncCode, subscription.toJSON() as PushSubscriptionJSON);
+    showToast('Push 通知を設定しました', 'success');
+  } catch (err) {
+    console.error('Push subscribe failed:', err);
+    showToast('Push 通知の設定に失敗しました', 'warn');
+  }
 }

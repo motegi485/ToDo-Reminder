@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { requestNotificationPermission } from '@/lib/notifyClient';
+import { requestNotificationPermission, subscribePush } from '@/lib/notifyClient';
 
 type Permission = 'granted' | 'denied' | 'default' | 'unsupported';
 
@@ -26,7 +26,12 @@ export function NotificationStatus() {
 
   const handleRequest = async () => {
     const result = await requestNotificationPermission();
-    setPerm(result === 'default' || result === 'granted' || result === 'denied' ? result : perm);
+    const next =
+      result === 'default' || result === 'granted' || result === 'denied' ? result : perm;
+    setPerm(next);
+    if (result === 'granted') {
+      await subscribePush();
+    }
   };
 
   return (
@@ -50,7 +55,7 @@ export function NotificationStatus() {
       {perm === 'granted' && (
         <button
           type="button"
-          onClick={handleRequest}
+          onClick={subscribePush}
           className="px-3 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800"
         >
           通知を再リクエスト
