@@ -24,6 +24,8 @@ export interface Task {
   sort_order: number | null;
   created_at: number;
   updated_at: number;
+  next_generated: boolean;
+  missed_due_date: string | null;
 }
 
 export interface User {
