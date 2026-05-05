@@ -62,6 +62,8 @@ function buildTask(input: TaskInput, base?: Task): Task {
     sort_order: base?.sort_order ?? null,
     created_at: base?.created_at ?? now,
     updated_at: now,
+    next_generated: base?.next_generated ?? false,
+    missed_due_date: base?.missed_due_date ?? null,
   };
 }
 
@@ -75,6 +77,7 @@ export async function updateTask(id: string, input: TaskInput): Promise<Task | n
   const existing = await db.tasks.get(id);
   if (!existing) return null;
   const task = buildTask(input, existing);
+  task.next_generated = false;
   await db.tasks.put(task);
   return task;
 }
@@ -85,12 +88,13 @@ export async function deleteTask(id: string): Promise<void> {
   await db.tasks.put({ ...existing, status: 'deleted', updated_at: Date.now() });
 }
 
-function generateRecurrenceTask(base: Task): Task | null {
-  if (!base.recurrence_rule || !base.due_date) return null;
-  const newDue = calcNextDueDate(base.due_date, base.recurrence_rule);
-  const newReminderTime =
-    base.reminder_offset !== null ? calcReminderTime(newDue, base.reminder_offset) : null;
-  const now = Date.now();
+function buildSuccessor(base: Task, intendedDue: string, now: number): Task {
+  const intendedTs = new Date(intendedDue).getTime();
+  const isMissed = intendedTs < now;
+  const reminderTime =
+    !isMissed && base.reminder_offset !== null
+      ? calcReminderTime(intendedDue, base.reminder_offset)
+      : null;
   return {
     id: generateId(),
     sync_code: base.sync_code,
@@ -99,30 +103,32 @@ function generateRecurrenceTask(base: Task): Task | null {
     status: 'active',
     current_value: base.type === 'quantitative' ? 0 : null,
     target_value: base.target_value,
-    due_date: newDue,
-    reminder_offset: base.reminder_offset,
-    reminder_time: newReminderTime,
+    due_date: isMissed ? null : intendedDue,
+    reminder_offset: isMissed ? null : base.reminder_offset,
+    reminder_time: reminderTime,
     recurrence_rule: base.recurrence_rule,
     project_name: base.project_name,
     sort_order: null,
     created_at: now,
     updated_at: now,
+    next_generated: false,
+    missed_due_date: isMissed ? intendedDue : null,
   };
 }
 
-export async function completeTask(id: string): Promise<{ completed: Task; next: Task | null }> {
-  let result: { completed: Task; next: Task | null } = {
-    completed: null as unknown as Task,
-    next: null,
-  };
+export async function completeTask(id: string): Promise<Task> {
+  let result: Task = null as unknown as Task;
   await db.transaction('rw', db.tasks, async () => {
     const existing = await db.tasks.get(id);
     if (!existing) throw new Error(`Task ${id} not found`);
-    const completed: Task = { ...existing, status: 'completed', updated_at: Date.now() };
+    const completed: Task = {
+      ...existing,
+      status: 'completed',
+      next_generated: false,
+      updated_at: Date.now(),
+    };
     await db.tasks.put(completed);
-    const next = generateRecurrenceTask(completed);
-    if (next) await db.tasks.put(next);
-    result = { completed, next };
+    result = completed;
   });
   return result;
 }
@@ -130,7 +136,12 @@ export async function completeTask(id: string): Promise<{ completed: Task; next:
 export async function uncompleteTask(id: string): Promise<void> {
   const existing = await db.tasks.get(id);
   if (!existing) return;
-  await db.tasks.put({ ...existing, status: 'active', updated_at: Date.now() });
+  await db.tasks.put({
+    ...existing,
+    status: 'active',
+    next_generated: false,
+    updated_at: Date.now(),
+  });
 }
 
 export async function bulkSoftDeleteCompleted(): Promise<number> {
@@ -152,11 +163,10 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
         ...existing,
         current_value: sanitized,
         status: 'completed',
+        next_generated: false,
         updated_at: now,
       };
       await db.tasks.put(completed);
-      const next = generateRecurrenceTask(completed);
-      if (next) await db.tasks.put(next);
       task = completed;
     } else {
       task = { ...existing, current_value: sanitized, updated_at: now };
@@ -164,6 +174,38 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
     }
   });
   return task;
+}
+
+export async function materializeRecurringTasks(now: number = Date.now()): Promise<number> {
+  let createdCount = 0;
+  await db.transaction('rw', db.tasks, async () => {
+    const completed = await db.tasks.where('status').equals('completed').toArray();
+    for (const t of completed) {
+      if (t.next_generated) continue;
+      if (!t.recurrence_rule || !t.due_date) continue;
+      if (t.recurrence_rule.interval < 1) continue;
+
+      let cursor = calcNextDueDate(t.due_date, t.recurrence_rule);
+      let safety = 0;
+      const successors: Task[] = [];
+      while (new Date(cursor).getTime() <= now && safety < 10000) {
+        successors.push(buildSuccessor(t, cursor, now));
+        const nextCursor = calcNextDueDate(cursor, t.recurrence_rule);
+        if (nextCursor === cursor) break;
+        cursor = nextCursor;
+        safety++;
+      }
+
+      if (successors.length === 0) continue;
+
+      for (const s of successors) {
+        await db.tasks.put(s);
+      }
+      await db.tasks.put({ ...t, next_generated: true, updated_at: Date.now() });
+      createdCount += successors.length;
+    }
+  });
+  return createdCount;
 }
 
 export async function purgeLocalCleanup(): Promise<number> {

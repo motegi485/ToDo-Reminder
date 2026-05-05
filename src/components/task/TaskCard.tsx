@@ -35,6 +35,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
 
   const completed = task.status === 'completed';
   const due = task.due_date ? formatDueLabel(task.due_date) : null;
+  const missed = task.missed_due_date ? formatDueLabel(task.missed_due_date) : null;
 
   const handleCheck = async () => {
     vibrate();
@@ -105,7 +106,12 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             {task.title}
           </div>
           {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
-          {due && (
+          {missed && !completed && (
+            <div className="mt-1 text-xs text-red-600 dark:text-red-400">
+              期限切れ: {missed.text}
+            </div>
+          )}
+          {due && !missed && (
             <div
               className={[
                 'mt-1 text-xs',

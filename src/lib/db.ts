@@ -18,6 +18,21 @@ class TodoDB extends Dexie {
       tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
       meta: 'key',
     });
+    this.version(2)
+      .stores({
+        users: 'sync_code',
+        tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
+        meta: 'key',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table<Task>('tasks')
+          .toCollection()
+          .modify((t) => {
+            t.next_generated = t.status === 'completed';
+            t.missed_due_date = null;
+          });
+      });
   }
 }
 
