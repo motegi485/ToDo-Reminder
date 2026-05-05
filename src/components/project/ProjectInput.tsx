@@ -21,7 +21,7 @@ export function ProjectInput({ id, value, onChange, placeholder = '未分類' }:
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        maxLength={32}
+        maxLength={30}
         className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
       />
       <datalist id={listId}>

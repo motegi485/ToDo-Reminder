@@ -11,12 +11,13 @@ export async function fireDueLocalNotifications(): Promise<number> {
 
   const now = Date.now();
   const horizon = now + 60 * 1000;
+  const floor = now - 60 * 1000;
   const tasks = await db.tasks.where('status').equals('active').toArray();
   let fired = 0;
   for (const t of tasks) {
     if (!t.reminder_time) continue;
     const ms = new Date(t.reminder_time).getTime();
-    if (ms <= horizon && ms >= now - 5 * 60 * 1000) {
+    if (ms <= horizon && ms >= floor) {
       await reg.showNotification('リマインダー', {
         body: t.title,
         icon: '/icons/icon-192.png',
