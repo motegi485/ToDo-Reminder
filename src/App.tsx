@@ -5,6 +5,8 @@ import { ToastContainer } from '@/components/ui/Toast';
 import { MobilePwaGuide } from '@/components/ui/MobilePwaGuide';
 import { fireDueLocalNotifications } from '@/lib/offlineNotify';
 import { materializeRecurringTasks } from '@/lib/taskRepo';
+import { runSync } from '@/lib/sync';
+import { CONSTANTS } from '@/lib/constants';
 import ListPage from '@/pages/ListPage';
 import ReportPage from '@/pages/ReportPage';
 import SettingsPage from '@/pages/SettingsPage';
@@ -24,6 +26,22 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVis);
     return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  useEffect(() => {
+    runSync().catch(() => {});
+
+    const onOnline = () => { runSync().catch(() => {}); };
+    window.addEventListener('online', onOnline);
+
+    const intervalId = setInterval(() => {
+      runSync().catch(() => {});
+    }, CONSTANTS.SYNC_INTERVAL_MS);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      clearInterval(intervalId);
+    };
   }, []);
 
   return (
