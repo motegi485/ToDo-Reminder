@@ -56,6 +56,17 @@ src/
 └── sw.ts
 ```
 
+## ローカル単体で完成済みの項目
+
+以下はフロント単体スコープとして v2.1 仕様で完成済み。フェーズ B（サーバー連携）担当はこれらに変更を加える必要はない。
+
+- `index.html` の PWA メタタグ（`apple-mobile-web-app-*`, `mobile-web-app-capable`）
+- 繰り返しタスクの遅延生成（`materializeRecurringTasks` を起動・visibilitychange でトリガー）
+- オフラインフォールバック通知（`fireDueLocalNotifications`、対象は直近 60 秒以内の `reminder_time`）
+- iOS / Android PWA ガイダンスモーダル（共通 `todo_ios_pwa_dismissed` フラグ）
+- 定量タスクのチェックボックス＝「進捗を記録」モーダル（delta 加算）／数値タップ＝直接書き換え
+- 同期コードの生成・コピー・共有 UI（永続化のみ）
+
 ## サーバー連携時の TODO
 
 - `VITE_API_URL` を `.env` に設定
@@ -349,9 +360,9 @@ npm run build && npm run preview
 2. PWA Asset Generator などで以下を書き出して `public/icons/` に配置：
    - `icon-192.png`（192×192）
    - `icon-512.png`（512×512、`maskable` 版もあるとなお良い）
-   - `badge-72.png`（モノクロ・透過、72×72。Android 通知バッジ用）
-   - `apple-touch-icon.png`（180×180、iOS ホーム画面用）
 3. `public/manifest.webmanifest` の `icons` 配列が新ファイルを参照していることを確認。
+
+> **アイコン採用方針（SPEC v2.1）:** Service Worker の通知 `badge` / `apple-touch-icon` / Android 通知バッジは **icon-192.png を流用**する（`badge-72.png` / `apple-touch-icon.png` は作成しない）。manifest の `icons` 配列も icon-192 / icon-512 の 2 種類のみで構成する。
 
 **完了判定:** Lighthouse の PWA 監査でアイコン警告が出ない。
 
@@ -495,5 +506,5 @@ npx wrangler d1 export todo-reminder-db --remote --output=./backup-$(date +%Y%m%
 | 4 | [wrangler.toml](wrangler.toml), [workers/index.ts](workers/index.ts), [workers/api/](workers/api/), [workers/cron/](workers/cron/), [workers/lib/](workers/lib/) |
 | 5 | [.env](.env), [src/lib/api.ts](src/lib/api.ts), [src/lib/sync.ts](src/lib/sync.ts) |
 | 5 | （既存修正）[src/lib/notifyClient.ts](src/lib/notifyClient.ts), [src/components/settings/SyncFromOtherDevice.tsx](src/components/settings/SyncFromOtherDevice.tsx), [src/App.tsx](src/App.tsx) |
-| 6 | [public/icons/icon-192.png](public/icons/icon-192.png), [public/icons/icon-512.png](public/icons/icon-512.png), [public/icons/badge-72.png](public/icons/badge-72.png), [public/icons/apple-touch-icon.png](public/icons/apple-touch-icon.png) |
+| 6 | [public/icons/icon-192.png](public/icons/icon-192.png), [public/icons/icon-512.png](public/icons/icon-512.png) |
 
