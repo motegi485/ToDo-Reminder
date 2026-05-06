@@ -10,3 +10,15 @@ dist-ssr/
 .DS_Store
 
 *.log
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Vite generated types cache
+.vite-types/
+
+# Claude Code local settings (machine-specific permissions)
+.claude/settings.local.json
+
+# Claude Code project spec (local development only)
+SPEC_FOR_CLAUDE_CODE.md
