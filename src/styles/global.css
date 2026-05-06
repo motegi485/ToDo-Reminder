@@ -7,6 +7,7 @@
   body,
   #root {
     height: 100%;
+    min-height: 100lvh;
   }
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
@@ -40,6 +41,9 @@
 @layer utilities {
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
   }
   .fab-bottom-safe {
     bottom: calc(5rem + env(safe-area-inset-bottom));

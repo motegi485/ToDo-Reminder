@@ -16,6 +16,17 @@ if (!storage.getSyncCode()) {
 
 registerSW({ immediate: true });
 
+// iOS PWA: 初期 viewport 計算がホームインジケーター領域を除外するバグの回避策。
+// 起動直後に微小スクロールを行い viewport を再計算させる。
+if (typeof window !== 'undefined') {
+  window.addEventListener('load', () => {
+    requestAnimationFrame(() => {
+      window.scrollTo(0, 1);
+      requestAnimationFrame(() => window.scrollTo(0, 0));
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
