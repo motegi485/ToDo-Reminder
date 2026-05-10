@@ -24,10 +24,9 @@ async function pull(syncCode: string): Promise<void> {
   storage.setLastSyncedAt(server_time);
 }
 
-async function push(syncCode: string): Promise<void> {
-  const lastSyncedAt = storage.getLastSyncedAt();
+async function push(syncCode: string, since: number): Promise<void> {
   const allTasks = await db.tasks.where('sync_code').equals(syncCode).toArray();
-  const changed = allTasks.filter((t) => t.updated_at > lastSyncedAt);
+  const changed = allTasks.filter((t) => t.updated_at > since);
   if (changed.length === 0) return;
 
   await api.syncPush(syncCode, changed);
@@ -40,33 +39,66 @@ export async function runSync(): Promise<void> {
   if (!syncCode) return;
 
   try {
+    // pull は内部で lastSyncedAt を server_time に書き換える。
+    // push は「pull 前の」カーソルを基準にしないと、
+    // pull 直後だと「(server_time より前 = ローカル既存タスク全部)」が除外されて永遠に push されない。
+    const since = storage.getLastSyncedAt();
     await pull(syncCode);
-    await push(syncCode);
+    await push(syncCode, since);
   } catch (err) {
     console.warn('Sync failed:', err);
     showToast('同期に失敗しました', 'warn');
   }
 }
 
-export async function switchSyncCode(newSyncCode: string): Promise<void> {
+export interface SwitchSyncCodeResult {
+  /** UI に表示される（deleted 以外の）タスク件数 */
+  visible: number;
+}
+
+export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCodeResult> {
   const currentTasks = await db.tasks.toArray();
-  const reassigned = currentTasks.map((t) => ({ ...t, sync_code: newSyncCode }));
+  const reassigned = currentTasks
+    .filter((t) => t.status !== 'deleted')
+    .map((t) => ({ ...t, sync_code: newSyncCode }));
 
   if (reassigned.length > 0) {
     await api.syncPush(newSyncCode, reassigned);
   }
 
   storage.setSyncCode(newSyncCode);
+  window.dispatchEvent(new Event('todo-sync-code-changed'));
   storage.setLastSyncedAt(0);
 
   await db.tasks.clear();
 
   const { tasks: serverTasks, server_time } = await api.syncPull(newSyncCode, 0);
-  const merged = serverTasks.map((t) => ({
-    ...t,
-    next_generated: false as const,
-    missed_due_date: null,
-  }));
-  await db.tasks.bulkPut(merged);
+
+  const merged = serverTasks
+    .filter((t) => t.status !== 'deleted')
+    .map((t) => ({
+      ...t,
+      next_generated: false as const,
+      missed_due_date: null,
+    }));
+
+  try {
+    await db.tasks.bulkPut(merged);
+  } catch (err) {
+    console.error('[switchSyncCode] bulkPut failed:', err);
+    const failures = (err as { failures?: unknown[] }).failures;
+    if (Array.isArray(failures)) {
+      console.error('[switchSyncCode] bulkPut per-row failures:', failures);
+    }
+    throw err;
+  }
+
   storage.setLastSyncedAt(server_time);
+
+  console.debug('[switchSyncCode] ok', {
+    pulled: serverTasks.length,
+    visible: merged.length,
+  });
+
+  return { visible: merged.length };
 }
