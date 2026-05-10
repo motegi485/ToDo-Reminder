@@ -1,11 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Copy, Share2 } from 'lucide-react';
 import { storage } from '@/lib/storage';
 import { formatSyncCode } from '@/lib/syncCode';
 import { showToast } from '@/components/ui/Toast';
 
 export function SyncCodeCard() {
-  const [code] = useState<string>(() => storage.getSyncCode() ?? '');
+  const [code, setCode] = useState<string>(() => storage.getSyncCode() ?? '');
+
+  useEffect(() => {
+    const refresh = () => setCode(storage.getSyncCode() ?? '');
+    window.addEventListener('focus', refresh);
+    window.addEventListener('todo-sync-code-changed', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('todo-sync-code-changed', refresh);
+    };
+  }, []);
+
   const formatted = formatSyncCode(code);
 
   const handleCopy = async () => {

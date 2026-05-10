@@ -23,11 +23,13 @@ export function SyncFromOtherDevice() {
     setConfirm(false);
     setLoading(true);
     try {
-      await switchSyncCode(normalized);
-      showToast('同期が完了しました', 'success');
+      const result = await switchSyncCode(normalized);
+      showToast(`同期が完了しました（${result.visible}件）`, 'success');
       setInput('');
-    } catch {
-      showToast('同期に失敗しました', 'error');
+    } catch (err) {
+      console.error('[switchSyncCode] failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`同期に失敗しました: ${msg}`, 'error');
     } finally {
       setLoading(false);
     }
