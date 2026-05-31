@@ -79,6 +79,9 @@ export async function applyLWW(
   const result: LWWResult = { accepted: 0, conflicts: [] };
   if (tasks.length === 0) return result;
 
+  // server_seq はサーバー到着時刻（サーバー時計）。同一バッチ内は同値でよい。
+  const serverSeq = Date.now();
+
   const ids = tasks.map((t) => t.id);
   const placeholders = ids.map(() => '?').join(',');
   const existing = await db
@@ -106,8 +109,8 @@ export async function applyLWW(
           `INSERT OR REPLACE INTO tasks
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
-            project_name, sort_order, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            project_name, sort_order, created_at, updated_at, server_seq)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           row.id,
@@ -125,6 +128,7 @@ export async function applyLWW(
           row.sort_order,
           row.created_at,
           row.updated_at,
+          serverSeq,
         ),
     );
     await db.batch(stmts);

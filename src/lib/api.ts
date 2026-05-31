@@ -15,7 +15,8 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
 
 export interface PullResponse {
   tasks: Task[];
-  server_time: number;
+  /** サーバー採番の同期カーソル（server_seq ウォーターマーク）。次回 pull の last_synced_at に使う。 */
+  cursor: number;
 }
 
 export interface PushResponse {

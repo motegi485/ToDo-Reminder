@@ -7,6 +7,7 @@ type StorageKey =
   | 'todo_project_default_expanded'
   | 'todo_project_states'
   | 'todo_last_synced_at'
+  | 'todo_last_pushed_at'
   | 'todo_ios_pwa_dismissed';
 
 function read(key: StorageKey): string | null {
@@ -79,6 +80,17 @@ export const storage = {
   },
   setLastSyncedAt(ms: number): void {
     write('todo_last_synced_at', String(ms));
+  },
+
+  // push 用カーソル（クライアント時計）。pull 用 lastSyncedAt はサーバー採番の
+  // server_seq なので、両者は別物として管理する（時計混在を避ける）。
+  getLastPushedAt(): number {
+    const v = read('todo_last_pushed_at');
+    const n = v === null ? 0 : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  },
+  setLastPushedAt(ms: number): void {
+    write('todo_last_pushed_at', String(ms));
   },
 
   getIosPwaDismissed(): boolean {

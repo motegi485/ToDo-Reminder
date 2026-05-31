@@ -6,7 +6,7 @@ import { showToast } from '@/components/ui/Toast';
 
 async function pull(syncCode: string): Promise<void> {
   const lastSyncedAt = storage.getLastSyncedAt();
-  const { tasks: serverTasks, server_time } = await api.syncPull(syncCode, lastSyncedAt);
+  const { tasks: serverTasks, cursor } = await api.syncPull(syncCode, lastSyncedAt);
 
   await db.transaction('rw', db.tasks, async () => {
     for (const serverTask of serverTasks) {
@@ -21,7 +21,8 @@ async function pull(syncCode: string): Promise<void> {
     }
   });
 
-  storage.setLastSyncedAt(server_time);
+  // lastSyncedAt はサーバー採番の server_seq ウォーターマーク（pull 専用カーソル）。
+  storage.setLastSyncedAt(cursor);
 }
 
 async function push(syncCode: string, since: number): Promise<void> {
@@ -39,16 +40,29 @@ export async function runSync(): Promise<void> {
   if (!syncCode) return;
 
   try {
-    // pull は内部で lastSyncedAt を server_time に書き換える。
-    // push は「pull 前の」カーソルを基準にしないと、
-    // pull 直後だと「(server_time より前 = ローカル既存タスク全部)」が除外されて永遠に push されない。
-    const since = storage.getLastSyncedAt();
+    // push カーソル(lastPushedAt)はクライアント時計、pull カーソル(lastSyncedAt)は
+    // サーバー採番の server_seq。両者は別物として管理する（時計混在を避ける）。
+    // push を pull より先に実行し、pull で取り込んだ行をそのまま push し返す無駄を避ける。
+    const pushSince = storage.getLastPushedAt();
+    const pushNow = Date.now();
+    await push(syncCode, pushSince);
+    storage.setLastPushedAt(pushNow);
     await pull(syncCode);
-    await push(syncCode, since);
   } catch (err) {
     console.warn('Sync failed:', err);
     showToast('同期に失敗しました', 'warn');
   }
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** ローカルのタスク変更後に呼ぶ。短く待ってから 1 回だけ同期する（デバウンス）。 */
+export function scheduleSync(delayMs = 1500): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    runSync().catch(() => {});
+  }, delayMs);
 }
 
 export interface SwitchSyncCodeResult {
@@ -72,7 +86,7 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
 
   await db.tasks.clear();
 
-  const { tasks: serverTasks, server_time } = await api.syncPull(newSyncCode, 0);
+  const { tasks: serverTasks, cursor } = await api.syncPull(newSyncCode, 0);
 
   const merged = serverTasks
     .filter((t) => t.status !== 'deleted')
@@ -93,7 +107,9 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
     throw err;
   }
 
-  storage.setLastSyncedAt(server_time);
+  storage.setLastSyncedAt(cursor);
+  // 取り込んだ行は既にサーバー上にある。以後の push は「切替後の編集」だけが対象。
+  storage.setLastPushedAt(Date.now());
 
   console.debug('[switchSyncCode] ok', {
     pulled: serverTasks.length,

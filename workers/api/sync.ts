@@ -29,13 +29,23 @@ export async function handleSyncPull(request: Request, env: Env): Promise<Respon
   await upsertUser(env.DB, syncCode);
 
   const result = await env.DB.prepare(
-    `SELECT * FROM tasks WHERE sync_code = ? AND updated_at > ?`,
+    `SELECT * FROM tasks WHERE sync_code = ? AND server_seq > ?`,
   )
     .bind(syncCode, lastSyncedAt)
     .all<Record<string, unknown>>();
 
-  const tasks = result.results.map(rowToPayload);
-  return jsonResponse({ tasks, server_time: Date.now() }, env, request);
+  const rows = result.results;
+  const tasks = rows.map(rowToPayload);
+
+  // カーソルは「実際に返した行の server_seq 最大値」だけ前進させる。
+  // server_time(現在時刻)を返すと、SELECT と応答の間に届いた行を次回取りこぼす。
+  let cursor = lastSyncedAt;
+  for (const row of rows) {
+    const seq = (row.server_seq as number) ?? 0;
+    if (seq > cursor) cursor = seq;
+  }
+
+  return jsonResponse({ tasks, cursor }, env, request);
 }
 
 export async function handleSyncPush(request: Request, env: Env): Promise<Response> {
