@@ -209,6 +209,11 @@
 - `tasks(id PK, sync_code FK, title, type, status, current_value, target_value, due_date, reminder_offset, reminder_time, recurrence_rule, project_name, sort_order, created_at, updated_at)`
 - インデックス：`reminder_time`（active のみ）／`(sync_code, status, updated_at)`／`(sync_code, project_name, status)`
 
+`migrations/0002_add_server_seq.sql`：
+
+- `tasks.server_seq`（upsert 時にサーバーが採番＝サーバー時計）を追加。pull のカーソル専用。既存行は `updated_at` で初期化。
+- インデックス：`(sync_code, server_seq)`
+
 ### LocalStorage キー
 
 `src/lib/storage.ts` で型付きラッパ経由のみアクセス：
@@ -220,17 +225,21 @@
 | `todo_sort_order` | ソート順 |
 | `todo_project_default_expanded` | プロジェクト初期展開 |
 | `todo_project_states` | プロジェクトごとの展開状態 |
-| `todo_last_synced_at` | 最終同期 server_time（pull カーソル） |
+| `todo_last_synced_at` | pull カーソル（サーバー採番の `server_seq` ウォーターマーク） |
+| `todo_last_pushed_at` | push カーソル（クライアント時計）。`updated_at` と同一時計で比較 |
 | `todo_ios_pwa_dismissed` | PWA 案内モーダルを閉じたフラグ |
 
 ### 同期戦略（LWW）
 
-1. `runSync()` は `pull → push` の順に実行（`App.tsx` から起動時／online イベント／5 分間隔で発火）。
-2. **pull**：`/api/sync/pull` に `last_synced_at` を渡して差分取得。ローカルに同 ID があれば `updated_at` の新しい方を採用。
-3. **push**：pull 前のカーソル `since` を基準に `updated_at > since` のタスクを送信。
-4. **コンフリクト**：サーバー側で `updated_at` 比較。負けた変更は `conflicts[]` に積まれ、次回 pull で上書きされる。
+カーソルは push 用と pull 用で時計を分離する（混在させると時計ズレや push 遅延で恒久的に取りこぼす）。
 
-> `src/lib/sync.ts` 冒頭のコメント参照 — pull 直後に push カーソルを `server_time` にすると永遠に push されないバグへの注釈あり。
+- **pull カーソル `lastSyncedAt`**：サーバーが upsert 時に採番する `server_seq`（サーバー時計）のウォーターマーク。`updated_at` ではなく到着順なので、編集 → push の遅延があっても他端末が確実に受信できる。
+- **push カーソル `lastPushedAt`**：クライアント時計。ローカルの `updated_at` と同一時計で比較する。
+
+1. `runSync()` は `push → pull` の順に実行（`App.tsx` から起動時／online イベント／5 分間隔、加えてタスク変更時に `scheduleSync()` で約 1.5 秒デバウンス発火）。pull で取り込んだ行をそのまま push し返さないよう push を先に行う。
+2. **push**：`updated_at > lastPushedAt` のタスクを送信し、成功後に `lastPushedAt` を前進。
+3. **pull**：`/api/sync/pull` に `last_synced_at`(=`server_seq` 高水位) を渡し `server_seq > ?` で差分取得。ローカルに同 ID があれば `updated_at` の新しい方を採用。カーソルは「実際に返した行の `server_seq` 最大値」だけ前進。
+4. **コンフリクト**：サーバー側で `updated_at` 比較。負けた変更は `conflicts[]` に積まれ、次回 pull で上書きされる。
 
 ### 同期コード切替（端末追加）
 
@@ -238,7 +247,7 @@
 1. ローカルタスクの `sync_code` を新コードに付け替えて新コード宛に push（消失防止）。
 2. LocalStorage を新コードに更新し `lastSyncedAt = 0` でリセット。
 3. ローカル `tasks` を全クリア。
-4. 新コードで full pull し、`deleted` 以外を bulkPut。
+4. 新コードで full pull し、`deleted` 以外を bulkPut。`lastSyncedAt` に pull カーソルを保存、`lastPushedAt = Date.now()`（取り込んだ行は既にサーバー上にあるため、以後は切替後の編集だけを push）。
 
 ### クリーンアップ
 

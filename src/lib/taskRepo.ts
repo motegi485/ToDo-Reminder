@@ -2,6 +2,7 @@ import { db } from './db';
 import { storage } from './storage';
 import { calcReminderTime } from './reminder';
 import { calcNextDueDate } from './recurrence';
+import { scheduleSync } from './sync';
 import type { RecurrenceRule, Task, TaskType } from '@/types';
 
 function generateId(): string {
@@ -70,6 +71,7 @@ function buildTask(input: TaskInput, base?: Task): Task {
 export async function createTask(input: TaskInput): Promise<Task> {
   const task = buildTask(input);
   await db.tasks.put(task);
+  scheduleSync();
   return task;
 }
 
@@ -79,6 +81,7 @@ export async function updateTask(id: string, input: TaskInput): Promise<Task | n
   const task = buildTask(input, existing);
   task.next_generated = false;
   await db.tasks.put(task);
+  scheduleSync();
   return task;
 }
 
@@ -86,6 +89,7 @@ export async function deleteTask(id: string): Promise<void> {
   const existing = await db.tasks.get(id);
   if (!existing) return;
   await db.tasks.put({ ...existing, status: 'deleted', updated_at: Date.now() });
+  scheduleSync();
 }
 
 function buildSuccessor(base: Task, intendedDue: string, now: number): Task {
@@ -130,6 +134,7 @@ export async function completeTask(id: string): Promise<Task> {
     await db.tasks.put(completed);
     result = completed;
   });
+  scheduleSync();
   return result;
 }
 
@@ -142,12 +147,14 @@ export async function uncompleteTask(id: string): Promise<void> {
     next_generated: false,
     updated_at: Date.now(),
   });
+  scheduleSync();
 }
 
 export async function bulkSoftDeleteCompleted(): Promise<number> {
   const completed = await db.tasks.where('status').equals('completed').toArray();
   const now = Date.now();
   await db.tasks.bulkPut(completed.map((t) => ({ ...t, status: 'deleted' as const, updated_at: now })));
+  if (completed.length > 0) scheduleSync();
   return completed.length;
 }
 
@@ -173,6 +180,7 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
       await db.tasks.put(task);
     }
   });
+  if (task) scheduleSync();
   return task;
 }
 
@@ -205,6 +213,7 @@ export async function materializeRecurringTasks(now: number = Date.now()): Promi
       createdCount += successors.length;
     }
   });
+  if (createdCount > 0) scheduleSync();
   return createdCount;
 }
 
