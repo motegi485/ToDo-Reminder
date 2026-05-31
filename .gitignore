@@ -22,3 +22,11 @@ dist-ssr/
 
 # Claude Code project spec (local development only)
 SPEC_FOR_CLAUDE_CODE.md
+
+# Cloudflare Wrangler local secrets / config (use wrangler.toml.example as template)
+.dev.vars
+.dev.vars.*
+wrangler.toml
+
+# D1 manual export (contains real user data)
+backup-*.sql
