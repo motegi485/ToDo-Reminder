@@ -112,7 +112,7 @@
 ├── tsconfig.json               app 用
 ├── tsconfig.workers.json       Workers 用（@cloudflare/workers-types）
 ├── tsconfig.node.json          ビルドツール用
-├── wrangler.toml               D1 / Cron / 環境変数の宣言
+├── wrangler.toml.example       D1 / Cron / 環境変数の宣言（コピーして wrangler.toml を作成・git 管理外）
 ├── package.json
 ├── .env.example                VITE_API_URL / VITE_VAPID_PUBLIC_KEY のひな形
 │
@@ -344,7 +344,8 @@ npx wrangler secret put VAPID_SUBJECT
 ### 3. D1 データベース作成
 ```sh
 npx wrangler d1 create todo-reminder-db
-# 出力された database_id を wrangler.toml に貼り付け
+# wrangler.toml.example を wrangler.toml にコピーし、出力された database_id を貼り付け
+cp wrangler.toml.example wrangler.toml   # 初回のみ（wrangler.toml は git 管理外）
 npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0001_initial.sql
 ```
 
