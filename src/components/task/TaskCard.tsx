@@ -69,101 +69,124 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   return (
     <div
       className={[
-        'relative flex items-stretch rounded-lg border bg-white dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 transition-opacity transition-transform duration-300',
-        completed ? 'opacity-50' : 'opacity-100',
+        'flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4',
+        'shadow-card dark:shadow-none transition-opacity duration-300',
+        completed ? 'opacity-60' : 'opacity-100',
       ].join(' ')}
     >
-      <div className={`w-1 rounded-l-lg ${accent.bg}`} aria-hidden />
-      <div className="flex-1 flex items-start gap-3 p-3">
-        <button
-          type="button"
-          aria-label={completed ? '未完了に戻す' : '完了にする'}
-          onClick={handleCheck}
+      {/* 丸チェックボックス（アクセント色） */}
+      <button
+        type="button"
+        aria-label={completed ? '未完了に戻す' : '完了にする'}
+        onClick={handleCheck}
+        className={[
+          'mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
+          'transition-[background-color,border-color,transform] active:scale-90',
+          completed ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+        ].join(' ')}
+      >
+        {completed && (
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
+            <path
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M3 8.5l3 3 7-7"
+            />
+          </svg>
+        )}
+      </button>
+
+      {/* 本文 */}
+      <div className="min-w-0 flex-1">
+        <div
           className={[
-            'mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors',
-            accent.border,
-            completed ? `${accent.bg}` : 'bg-white dark:bg-slate-900',
+            'text-[15px] leading-snug break-words',
+            completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
           ].join(' ')}
         >
-          {completed && (
-            <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 text-white">
-              <path
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 8.5l3 3 7-7"
-              />
-            </svg>
-          )}
-        </button>
-        <div className="flex-1 min-w-0">
+          {task.title}
+        </div>
+
+        {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は leading で同じ行に表示 */}
+        {task.type === 'quantitative' && (
+          <QuantitativeProgress
+            task={task}
+            leading={
+              due && !missed ? (
+                <>
+                  <span className={due.overdue && !completed ? 'text-red-600 dark:text-red-400' : undefined}>
+                    期限 {due.text}
+                  </span>
+                  <span aria-hidden>·</span>
+                </>
+              ) : null
+            }
+          />
+        )}
+
+        {/* シンプルタスクの期限行 */}
+        {task.type !== 'quantitative' && due && !missed && (
           <div
             className={[
-              'text-sm break-words',
-              completed ? 'line-through text-slate-500' : 'text-slate-900 dark:text-slate-100',
+              'mt-1 text-[13px]',
+              due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400',
             ].join(' ')}
           >
-            {task.title}
-          </div>
-          {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
-          {missed && !completed && (
-            <div className="mt-1 text-xs text-red-600 dark:text-red-400">
-              期限切れ: {missed.text}
-            </div>
-          )}
-          {due && !missed && (
-            <div
-              className={[
-                'mt-1 text-xs',
-                due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500',
-              ].join(' ')}
-            >
-              期限: {due.text}
-            </div>
-          )}
-          {showProjectLabel && task.project_name && (
-            <div className="mt-0.5 text-[11px] text-slate-400">{task.project_name}</div>
-          )}
-        </div>
-        {!hideMenu && (
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              aria-label="メニュー"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-              className="p-1 -m-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
-            >
-              <MoreVertical size={18} />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-sm">
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onEdit?.(task);
-                  }}
-                >
-                  編集
-                </button>
-                <button
-                  type="button"
-                  className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  削除
-                </button>
-              </div>
-            )}
+            期限: {due.text}
           </div>
         )}
+
+        {/* 期限切れ表示（従来どおり） */}
+        {missed && !completed && (
+          <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
+        )}
+
+        {/* プロジェクトラベル（従来どおり） */}
+        {showProjectLabel && task.project_name && (
+          <div className="mt-0.5 text-[11px] text-slate-400">{task.project_name}</div>
+        )}
       </div>
+
+      {!hideMenu && (
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            aria-label="メニュー"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
+            className="p-1 -m-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+          >
+            <MoreVertical size={18} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-sm">
+              <button
+                type="button"
+                className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEdit?.(task);
+                }}
+              >
+                編集
+              </button>
+              <button
+                type="button"
+                className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600"
+                onClick={() => setConfirmDelete(true)}
+              >
+                削除
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {showQuantModal && (
         <div
           className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
