@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { setQuantitativeValue } from '@/lib/taskRepo';
 import { vibrate } from '@/hooks/useHaptic';
 import { accentFor } from './accentColor';
@@ -6,9 +7,11 @@ import type { Task } from '@/types';
 
 interface Props {
   task: Task;
+  /** 数値の前（同じ行）に表示する期限ラベルなど。任意 */
+  leading?: ReactNode;
 }
 
-export function QuantitativeProgress({ task }: Props) {
+export function QuantitativeProgress({ task, leading }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,47 +39,43 @@ export function QuantitativeProgress({ task }: Props) {
   };
 
   return (
-    <div className="mt-1 flex items-center gap-3">
-      <div className="flex-1 h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-        <div
-          className={`h-full ${accent.bg} transition-[width] duration-300 ease-out`}
-          style={{ width: `${ratio * 100}%` }}
-        />
+    <div className="mt-1">
+      {/* メタ行：期限（任意）＋ タップで直接編集できる数値 */}
+      <div className="flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+        {leading}
+        {editing ? (
+          <span className="flex items-center gap-1">
+            <input
+              ref={inputRef}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void commit(); }
+                else if (e.key === 'Escape') setEditing(false);
+              }}
+              className="w-14 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-1.5 py-0.5 text-right tabular-nums"
+            />
+            <span>/ {target}</span>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="tabular-nums hover:text-slate-900 dark:hover:text-white"
+            onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+          >
+            {current} / {target}
+          </button>
+        )}
       </div>
-      {editing ? (
-        <div className="flex items-center gap-1 text-xs">
-          <input
-            ref={inputRef}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                void commit();
-              } else if (e.key === 'Escape') {
-                setEditing(false);
-              }
-            }}
-            className="w-16 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-right"
-          />
-          <span className="text-slate-500">/ {target}</span>
-        </div>
-      ) : (
-        <button
-          type="button"
-          className="text-xs tabular-nums text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-          onClick={(e) => {
-            e.stopPropagation();
-            setEditing(true);
-          }}
-        >
-          {current} / {target}
-        </button>
-      )}
+
+      {/* 全幅プログレスバー */}
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+        <div className={`h-full ${accent.bg} transition-[width] duration-300 ease-out`} style={{ width: `${ratio * 100}%` }} />
+      </div>
     </div>
   );
 }

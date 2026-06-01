@@ -8,13 +8,16 @@ const config: Config = {
       transitionTimingFunction: {
         'sheet': 'cubic-bezier(0.32, 0.72, 0, 1)',
       },
+      boxShadow: {
+        card: '0 1px 2px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.06)',
+      },
     },
   },
   plugins: [],
   safelist: [
-    'bg-slate-500', 'bg-sky-500', 'bg-emerald-500', 'bg-indigo-500',
-    'border-slate-500', 'border-sky-500', 'border-emerald-500', 'border-indigo-500',
-    'text-slate-500', 'text-sky-500', 'text-emerald-500', 'text-indigo-500',
+    'bg-slate-400', 'bg-sky-500', 'bg-teal-500', 'bg-rose-500',
+    'border-slate-400', 'border-sky-500', 'border-teal-500', 'border-rose-500',
+    'text-slate-400', 'text-sky-500', 'text-teal-500', 'text-rose-500',
   ],
 };
 

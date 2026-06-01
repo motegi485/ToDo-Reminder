@@ -11,9 +11,9 @@ export function accentFor(type: TaskType, hasDue: boolean): AccentClasses {
   if (type === 'simple') {
     return hasDue
       ? { bg: 'bg-sky-500', border: 'border-sky-500', text: 'text-sky-500', ring: 'focus:ring-sky-400' }
-      : { bg: 'bg-slate-500', border: 'border-slate-500', text: 'text-slate-500', ring: 'focus:ring-slate-400' };
+      : { bg: 'bg-slate-400', border: 'border-slate-400', text: 'text-slate-400', ring: 'focus:ring-slate-300' };
   }
   return hasDue
-    ? { bg: 'bg-indigo-500', border: 'border-indigo-500', text: 'text-indigo-500', ring: 'focus:ring-indigo-400' }
-    : { bg: 'bg-emerald-500', border: 'border-emerald-500', text: 'text-emerald-500', ring: 'focus:ring-emerald-400' };
+    ? { bg: 'bg-rose-500', border: 'border-rose-500', text: 'text-rose-500', ring: 'focus:ring-rose-400' }
+    : { bg: 'bg-teal-500', border: 'border-teal-500', text: 'text-teal-500', ring: 'focus:ring-teal-400' };
 }

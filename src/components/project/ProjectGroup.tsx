@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Folder } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { TaskCard } from '@/components/task/TaskCard';
 import { sortTasks } from '@/lib/sort';
 import { useSortOrder } from '@/hooks/useSortOrder';
@@ -24,31 +24,29 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
     return () => window.removeEventListener(SYNC_EVENT, handler);
   }, [name]);
 
-  const handleToggle = () => {
-    setOpen(toggleExpanded(name));
-  };
-
+  const handleToggle = () => setOpen(toggleExpanded(name));
   const sorted = sortTasks(tasks, sortOrder);
 
   return (
-    <section className="mb-3">
+    <section className="mt-7 first:mt-1">
       <button
         type="button"
         onClick={handleToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-800/60 hover:bg-slate-200 dark:hover:bg-slate-800"
+        className="flex w-full items-center gap-2 px-0.5 pb-3 text-left"
       >
-        <Folder size={16} className="text-slate-500" />
-        <span className="flex-1 text-left text-sm font-medium">
+        <h2 className="text-[22px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
           {name ?? '未分類'}
-        </span>
-        <span className="text-xs text-slate-500">{tasks.length} 件</span>
+        </h2>
         <ChevronDown
-          size={16}
-          className={`text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          size={19}
+          className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
+        <span className="flex-1" />
+        <span className="text-sm text-slate-400 dark:text-slate-500">{tasks.length}</span>
       </button>
+
       {open && (
-        <div className="mt-2 space-y-2">
+        <div className="space-y-2.5">
           {sorted.map((t) => (
             <TaskCard key={t.id} task={t} onEdit={onEdit} />
           ))}
