@@ -8,6 +8,7 @@ type StorageKey =
   | 'todo_project_states'
   | 'todo_last_synced_at'
   | 'todo_last_pushed_at'
+  | 'todo_notified_reminders'
   | 'todo_ios_pwa_dismissed';
 
 function read(key: StorageKey): string | null {
@@ -91,6 +92,23 @@ export const storage = {
   },
   setLastPushedAt(ms: number): void {
     write('todo_last_pushed_at', String(ms));
+  },
+
+  // ローカル通知（起動中フォールバック）で発火済みのリマインダーを記録し、
+  // 同じリマインダーを定期チェックのたびに再通知しないようにする。
+  // キーは `${taskId}@${reminder_time}`、値は通知した時刻（ms）。
+  getNotifiedReminders(): Record<string, number> {
+    const raw = read('todo_notified_reminders');
+    if (!raw) return {};
+    try {
+      const obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' ? (obj as Record<string, number>) : {};
+    } catch {
+      return {};
+    }
+  },
+  setNotifiedReminders(map: Record<string, number>): void {
+    write('todo_notified_reminders', JSON.stringify(map));
   },
 
   getIosPwaDismissed(): boolean {

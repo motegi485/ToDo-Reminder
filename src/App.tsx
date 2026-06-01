@@ -25,7 +25,14 @@ export default function App() {
       if (document.visibilityState === 'visible') run();
     };
     document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
+    // アプリを開いたままでもリマインダー時刻に通知が出るよう定期的に確認する。
+    const intervalId = setInterval(() => {
+      fireDueLocalNotifications().catch(() => {});
+    }, CONSTANTS.LOCAL_NOTIFY_INTERVAL_MS);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
