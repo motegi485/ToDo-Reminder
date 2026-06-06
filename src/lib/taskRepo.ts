@@ -80,6 +80,16 @@ export async function updateTask(id: string, input: TaskInput): Promise<Task | n
   if (!existing) return null;
   const task = buildTask(input, existing);
   task.next_generated = false;
+  // 完了済みの定量タスクで、現在値が目標値を下回る編集をした場合は未完了へ戻す
+  if (
+    task.status === 'completed' &&
+    task.type === 'quantitative' &&
+    task.target_value !== null &&
+    task.current_value !== null &&
+    task.current_value < task.target_value
+  ) {
+    task.status = 'active';
+  }
   await db.tasks.put(task);
   scheduleSync();
   return task;
