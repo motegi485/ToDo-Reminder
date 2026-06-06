@@ -49,3 +49,36 @@
     bottom: calc(5rem + env(safe-area-inset-bottom));
   }
 }
+
+/* タスク完了時のチェック確定演出 */
+@keyframes task-cb-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.28);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes task-cb-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.task-cb-pop {
+  animation: task-cb-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.task-cb-draw {
+  animation: task-cb-draw 300ms ease 30ms forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-cb-pop,
+  .task-cb-draw {
+    animation: none !important;
+  }
+}

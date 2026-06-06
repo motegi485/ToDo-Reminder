@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { TaskCard } from '@/components/task/TaskCard';
 import { sortTasks } from '@/lib/sort';
 import { useSortOrder } from '@/hooks/useSortOrder';
+import { useFlipReorder } from '@/hooks/useFlipReorder';
 import { isExpanded, toggleExpanded } from '@/lib/projectExpansion';
 import type { Task } from '@/types';
 
@@ -17,6 +18,7 @@ const SYNC_EVENT = 'todo:project-states-changed';
 export function ProjectGroup({ name, tasks, onEdit }: Props) {
   const [open, setOpen] = useState<boolean>(() => isExpanded(name));
   const { value: sortOrder } = useSortOrder();
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = () => setOpen(isExpanded(name));
@@ -33,6 +35,12 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
     .filter((t) => t.status === 'completed')
     .sort((a, b) => a.updated_at - b.updated_at);
   const ordered = [...activeTasks, ...completedTasks];
+
+  // 並び順が変わったとき、各カードを旧位置→新位置へ FLIP スライドで補間する
+  useFlipReorder(
+    listRef,
+    ordered.map((t) => t.id),
+  );
 
   return (
     <section className="mt-7 first:mt-1">
@@ -55,7 +63,7 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
       </button>
 
       {open && (
-        <div className="space-y-2.5">
+        <div ref={listRef} className="space-y-2.5">
           {ordered.map((t) => (
             <TaskCard key={t.id} task={t} onEdit={onEdit} />
           ))}
