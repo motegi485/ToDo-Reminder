@@ -25,7 +25,14 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
   }, [name]);
 
   const handleToggle = () => setOpen(toggleExpanded(name));
+
+  // 未完了はソート順で上、完了は最下部（完了が新しいものほど下）に並べる
   const sorted = sortTasks(tasks, sortOrder);
+  const activeTasks = sorted.filter((t) => t.status === 'active');
+  const completedTasks = sorted
+    .filter((t) => t.status === 'completed')
+    .sort((a, b) => a.updated_at - b.updated_at);
+  const ordered = [...activeTasks, ...completedTasks];
 
   return (
     <section className="mt-7 first:mt-1">
@@ -42,12 +49,14 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
           className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
         />
         <span className="flex-1" />
-        <span className="text-sm text-slate-400 dark:text-slate-500">{tasks.length}</span>
+        <span className="text-sm text-slate-400 dark:text-slate-500">
+          {completedTasks.length}/{tasks.length}
+        </span>
       </button>
 
       {open && (
         <div className="space-y-2.5">
-          {sorted.map((t) => (
+          {ordered.map((t) => (
             <TaskCard key={t.id} task={t} onEdit={onEdit} />
           ))}
         </div>

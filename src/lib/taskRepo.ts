@@ -150,14 +150,6 @@ export async function uncompleteTask(id: string): Promise<void> {
   scheduleSync();
 }
 
-export async function bulkSoftDeleteCompleted(): Promise<number> {
-  const completed = await db.tasks.where('status').equals('completed').toArray();
-  const now = Date.now();
-  await db.tasks.bulkPut(completed.map((t) => ({ ...t, status: 'deleted' as const, updated_at: now })));
-  if (completed.length > 0) scheduleSync();
-  return completed.length;
-}
-
 export async function setQuantitativeValue(id: string, value: number): Promise<Task | null> {
   let task: Task | null = null;
   await db.transaction('rw', db.tasks, async () => {

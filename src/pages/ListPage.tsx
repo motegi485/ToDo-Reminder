@@ -2,10 +2,8 @@ import { useState } from 'react';
 import { FAB } from '@/components/ui/FAB';
 import { TaskFormDialog } from '@/components/task/TaskFormDialog';
 import { ProjectGroup } from '@/components/project/ProjectGroup';
-import { CompletedSection } from '@/components/task/CompletedSection';
 import { EmptyState } from '@/components/task/EmptyState';
 import { SortMenu } from '@/components/task/SortMenu';
-import { useAllVisibleTasks } from '@/hooks/useTasks';
 import { useProjectGroups } from '@/hooks/useProjects';
 import type { Task } from '@/types';
 
@@ -13,7 +11,6 @@ export default function ListPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
 
-  const { active, completed } = useAllVisibleTasks();
   const groups = useProjectGroups();
 
   const handleAdd = () => {
@@ -33,20 +30,17 @@ export default function ListPage() {
         <SortMenu />
       </header>
 
-      {active.length === 0 && completed.length === 0 ? (
+      {groups.length === 0 ? (
         <EmptyState />
       ) : (
-        <>
-          {groups.map((g) => (
-            <ProjectGroup
-              key={g.name ?? '__null__'}
-              name={g.name}
-              tasks={g.tasks}
-              onEdit={handleEdit}
-            />
-          ))}
-          <CompletedSection tasks={completed} />
-        </>
+        groups.map((g) => (
+          <ProjectGroup
+            key={g.name ?? '__null__'}
+            name={g.name}
+            tasks={g.tasks}
+            onEdit={handleEdit}
+          />
+        ))
       )}
 
       <FAB onClick={handleAdd} />
