@@ -50,7 +50,7 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
         className="flex w-full items-center gap-2 px-0.5 pb-3 text-left"
       >
         <h2 className="text-[22px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          {name ?? '未分類'}
+          {name ?? 'その他'}
         </h2>
         <ChevronDown
           size={19}

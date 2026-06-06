@@ -8,7 +8,7 @@ interface Props {
 function group(tasks: Task[]): Map<string, Task[]> {
   const m = new Map<string, Task[]>();
   for (const t of tasks) {
-    const key = t.project_name ?? '未分類';
+    const key = t.project_name ?? 'その他';
     const arr = m.get(key) ?? [];
     arr.push(t);
     m.set(key, arr);
