@@ -99,90 +99,94 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   return (
     <div
       data-task-id={task.id}
-      className={[
-        'flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4',
-        'shadow-card dark:shadow-none transition-opacity duration-300',
-        completed ? 'opacity-60' : 'opacity-100',
-      ].join(' ')}
+      className="flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4 shadow-card dark:shadow-none"
     >
-      {/* 丸チェックボックス（アクセント色） */}
-      <button
-        type="button"
-        aria-label={showChecked ? '未完了に戻す' : '完了にする'}
-        onClick={handleCheck}
-        onAnimationEnd={() => setAnimateCheck(false)}
+      {/* 完了タスクはチェック＋本文だけを薄くする。メニュー／ダイアログには波及させない */}
+      <div
         className={[
-          'mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
-          'transition-[background-color,border-color,transform] active:scale-90',
-          showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
-          animateCheck ? 'task-cb-pop' : '',
+          'flex items-start gap-3 min-w-0 flex-1 transition-opacity duration-300',
+          completed ? 'opacity-60' : 'opacity-100',
         ].join(' ')}
       >
-        {showChecked && (
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
-            <path
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3 8.5l3 3 7-7"
-              className={animateCheck ? 'task-cb-draw' : undefined}
-              style={animateCheck ? { strokeDasharray: 22, strokeDashoffset: 22 } : undefined}
-            />
-          </svg>
-        )}
-      </button>
-
-      {/* 本文 */}
-      <div className="min-w-0 flex-1">
-        <div
+        {/* 丸チェックボックス（アクセント色） */}
+        <button
+          type="button"
+          aria-label={showChecked ? '未完了に戻す' : '完了にする'}
+          onClick={handleCheck}
+          onAnimationEnd={() => setAnimateCheck(false)}
           className={[
-            'text-[15px] leading-snug break-words',
-            completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
+            'mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
+            'transition-[background-color,border-color,transform] active:scale-90',
+            showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+            animateCheck ? 'task-cb-pop' : '',
           ].join(' ')}
         >
-          {task.title}
-        </div>
+          {showChecked && (
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 8.5l3 3 7-7"
+                className={animateCheck ? 'task-cb-draw' : undefined}
+                style={animateCheck ? { strokeDasharray: 22, strokeDashoffset: 22 } : undefined}
+              />
+            </svg>
+          )}
+        </button>
 
-        {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は leading で同じ行に表示 */}
-        {task.type === 'quantitative' && (
-          <QuantitativeProgress
-            task={task}
-            leading={
-              due && !missed ? (
-                <>
-                  <span className={due.overdue && !completed ? 'text-red-600 dark:text-red-400' : undefined}>
-                    期限 {due.text}
-                  </span>
-                  <span aria-hidden>·</span>
-                </>
-              ) : null
-            }
-          />
-        )}
-
-        {/* シンプルタスクの期限行 */}
-        {task.type !== 'quantitative' && due && !missed && (
+        {/* 本文 */}
+        <div className="min-w-0 flex-1">
           <div
             className={[
-              'mt-1 text-[13px]',
-              due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400',
+              'text-[15px] leading-snug break-words',
+              completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
             ].join(' ')}
           >
-            期限: {due.text}
+            {task.title}
           </div>
-        )}
 
-        {/* 期限切れ表示（従来どおり） */}
-        {missed && !completed && (
-          <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
-        )}
+          {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は leading で同じ行に表示 */}
+          {task.type === 'quantitative' && (
+            <QuantitativeProgress
+              task={task}
+              leading={
+                due && !missed ? (
+                  <>
+                    <span className={due.overdue && !completed ? 'text-red-600 dark:text-red-400' : undefined}>
+                      期限 {due.text}
+                    </span>
+                    <span aria-hidden>·</span>
+                  </>
+                ) : null
+              }
+            />
+          )}
 
-        {/* プロジェクトラベル（従来どおり） */}
-        {showProjectLabel && task.project_name && (
-          <div className="mt-0.5 text-[11px] text-slate-400">{task.project_name}</div>
-        )}
+          {/* シンプルタスクの期限行 */}
+          {task.type !== 'quantitative' && due && !missed && (
+            <div
+              className={[
+                'mt-1 text-[13px]',
+                due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400',
+              ].join(' ')}
+            >
+              期限: {due.text}
+            </div>
+          )}
+
+          {/* 期限切れ表示（従来どおり） */}
+          {missed && !completed && (
+            <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
+          )}
+
+          {/* プロジェクトラベル（従来どおり） */}
+          {showProjectLabel && task.project_name && (
+            <div className="mt-0.5 text-[11px] text-slate-400">{task.project_name}</div>
+          )}
+        </div>
       </div>
 
       {!hideMenu && (
