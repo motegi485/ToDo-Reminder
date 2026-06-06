@@ -249,8 +249,8 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
           </label>
           <ProjectInput
             id="task-project"
-            value={values.project_name ?? ''}
-            onChange={(v) => setField('project_name', v.length === 0 ? null : v)}
+            value={values.project_name}
+            onChange={(v) => setField('project_name', v)}
           />
           {errors.project_name && <p className="text-xs text-red-600">{errors.project_name}</p>}
         </div>
