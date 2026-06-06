@@ -3,9 +3,12 @@ import { MoreVertical } from 'lucide-react';
 import { accentFor } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
-import { vibrate } from '@/hooks/useHaptic';
+import { haptic } from '@/hooks/useHaptic';
+import { prefersReducedMotion } from '@/lib/motion';
 import { formatDueLabel } from '@/lib/format';
 import type { Task } from '@/types';
+
+const COMMIT_DELAY_MS = 260;
 
 interface Props {
   task: Task;
@@ -20,8 +23,11 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showQuantModal, setShowQuantModal] = useState(false);
   const [completionDraft, setCompletionDraft] = useState('');
+  const [pending, setPending] = useState(false);
+  const [animateCheck, setAnimateCheck] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const quantInputRef = useRef<HTMLInputElement>(null);
+  const commitTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -34,20 +40,44 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   }, [menuOpen]);
 
   const completed = task.status === 'completed';
+  const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
   const due = task.due_date ? formatDueLabel(task.due_date) : null;
   const missed = task.missed_due_date ? formatDueLabel(task.missed_due_date) : null;
 
+  // 実状態が completed になったら楽観表示(pending)を解除して整合させる
+  useEffect(() => {
+    if (completed) setPending(false);
+  }, [completed]);
+
+  // アンマウント時に保留中のコミットを掃除する
+  useEffect(() => {
+    return () => {
+      if (commitTimer.current !== null) window.clearTimeout(commitTimer.current);
+    };
+  }, []);
+
   const handleCheck = async () => {
-    vibrate();
     if (completed) {
+      // 未完了に戻す: 遅延なしで即コミット
+      haptic('select');
       await uncompleteTask(task.id);
-    } else if (task.type === 'quantitative') {
+      return;
+    }
+    if (task.type === 'quantitative') {
+      // 定量タスクは従来どおりモーダルを開くだけ（アニメーション対象外）
       setCompletionDraft('');
       setShowQuantModal(true);
       requestAnimationFrame(() => quantInputRef.current?.focus());
-    } else {
-      await completeTask(task.id);
+      return;
     }
+    // active なシンプルタスク → その場でチェック確定し、少し遅れて DB をコミットしてから滑らせる
+    haptic('success');
+    setPending(true);
+    if (!prefersReducedMotion()) setAnimateCheck(true);
+    commitTimer.current = window.setTimeout(() => {
+      commitTimer.current = null;
+      void completeTask(task.id);
+    }, COMMIT_DELAY_MS);
   };
 
   const quantDelta = Number(completionDraft);
@@ -68,6 +98,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
 
   return (
     <div
+      data-task-id={task.id}
       className={[
         'flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4',
         'shadow-card dark:shadow-none transition-opacity duration-300',
@@ -77,15 +108,17 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
       {/* 丸チェックボックス（アクセント色） */}
       <button
         type="button"
-        aria-label={completed ? '未完了に戻す' : '完了にする'}
+        aria-label={showChecked ? '未完了に戻す' : '完了にする'}
         onClick={handleCheck}
+        onAnimationEnd={() => setAnimateCheck(false)}
         className={[
           'mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
           'transition-[background-color,border-color,transform] active:scale-90',
-          completed ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+          showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+          animateCheck ? 'task-cb-pop' : '',
         ].join(' ')}
       >
-        {completed && (
+        {showChecked && (
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
             <path
               fill="none"
@@ -94,6 +127,8 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               strokeLinecap="round"
               strokeLinejoin="round"
               d="M3 8.5l3 3 7-7"
+              className={animateCheck ? 'task-cb-draw' : undefined}
+              style={animateCheck ? { strokeDasharray: 22, strokeDashoffset: 22 } : undefined}
             />
           </svg>
         )}
@@ -178,7 +213,10 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               <button
                 type="button"
                 className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600"
-                onClick={() => setConfirmDelete(true)}
+                onClick={() => {
+                  setMenuOpen(false);
+                  setConfirmDelete(true);
+                }}
               >
                 削除
               </button>

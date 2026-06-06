@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { setQuantitativeValue } from '@/lib/taskRepo';
-import { vibrate } from '@/hooks/useHaptic';
+import { haptic } from '@/hooks/useHaptic';
 import { accentFor } from './accentColor';
 import type { Task } from '@/types';
 
@@ -33,7 +33,7 @@ export function QuantitativeProgress({ task, leading }: Props) {
     if (Number.isFinite(n)) {
       const before = task.current_value ?? 0;
       await setQuantitativeValue(task.id, Math.max(0, Math.floor(n)));
-      if (Math.floor(n) !== before) vibrate();
+      if (Math.floor(n) !== before) haptic('select');
     }
     setEditing(false);
   };

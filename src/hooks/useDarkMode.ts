@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { storage } from '@/lib/storage';
+import { haptic } from '@/hooks/useHaptic';
 
 function applyClass(on: boolean): void {
   const root = document.documentElement;
@@ -20,7 +21,7 @@ export function useDarkMode(): { dark: boolean; toggle: () => void; set: (on: bo
 
   const toggle = useCallback(() => {
     setDark((d) => !d);
-    if ('vibrate' in navigator) navigator.vibrate(50);
+    haptic('select');
   }, []);
 
   const set = useCallback((on: boolean) => {
