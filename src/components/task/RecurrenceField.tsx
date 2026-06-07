@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { Toggle } from '@/components/ui/Toggle';
+import { ReminderField } from './ReminderField';
 import type { RecurrenceRule, RecurrenceType } from '@/types';
 
 interface Props {
@@ -7,33 +7,32 @@ interface Props {
   onEnabledChange: (next: boolean) => void;
   rule: RecurrenceRule | null;
   onRuleChange: (rule: RecurrenceRule | null) => void;
-  error?: string;
+  // 繰り返し専用のリマインダー（基準は切り替わりの 0:00）
+  reminderOffset: number | null;
+  onReminderEnabledChange: (on: boolean) => void;
+  onReminderOffsetChange: (offset: number | null) => void;
+  reminderError?: string;
   disabled?: boolean;
 }
+
+const TYPE_OPTIONS: ReadonlyArray<{ value: RecurrenceType; label: string }> = [
+  { value: 'daily', label: '毎日' },
+  { value: 'weekly', label: '毎週' },
+  { value: 'monthly', label: '毎月' },
+];
 
 export function RecurrenceField({
   enabled,
   onEnabledChange,
   rule,
   onRuleChange,
-  error,
+  reminderOffset,
+  onReminderEnabledChange,
+  onReminderOffsetChange,
+  reminderError,
   disabled,
 }: Props) {
   const type: RecurrenceType = rule?.type ?? 'daily';
-  const interval = rule?.interval ?? 1;
-  const [localValue, setLocalValue] = useState<string>(() =>
-    type === 'custom' ? String(interval) : ''
-  );
-
-  const setType = (next: RecurrenceType) => {
-    if (next === 'daily') onRuleChange({ type: 'daily', interval: 1 });
-    else if (next === 'weekly') onRuleChange({ type: 'weekly', interval: 1 });
-    else {
-      const n = Math.max(1, rule?.interval ?? 2);
-      onRuleChange({ type: 'custom', interval: n });
-      setLocalValue(String(n));
-    }
-  };
 
   return (
     <div className="space-y-2">
@@ -42,37 +41,33 @@ export function RecurrenceField({
         <Toggle checked={enabled} onChange={onEnabledChange} label="繰り返し" />
       </div>
       {enabled && (
-        <div className="space-y-2 pl-3 border-l-2 border-slate-200 dark:border-slate-700">
+        <div className="space-y-3 pl-3 border-l-2 border-slate-200 dark:border-slate-700">
           <select
             value={type}
-            onChange={(e) => setType(e.target.value as RecurrenceType)}
+            onChange={(e) => onRuleChange({ type: e.target.value as RecurrenceType })}
             disabled={disabled}
             className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
           >
-            <option value="daily">毎日</option>
-            <option value="weekly">毎週</option>
-            <option value="custom">カスタム</option>
+            {TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
           </select>
-          {type === 'custom' && (
-            <div className="flex items-center gap-2 text-sm">
-              <input
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={localValue}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/[^0-9]/g, '');
-                  setLocalValue(v);
-                  if (v !== '') {
-                    onRuleChange({ type: 'custom', interval: Math.max(1, Number(v)) });
-                  }
-                }}
-                className="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right"
-              />
-              <span className="text-slate-500">日ごと</span>
-            </div>
+
+          <ReminderField
+            enabled={reminderOffset !== null}
+            onEnabledChange={onReminderEnabledChange}
+            offset={reminderOffset}
+            onOffsetChange={onReminderOffsetChange}
+            error={reminderError}
+            disabled={disabled}
+          />
+          {reminderOffset !== null && (
+            <p className="text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+              切り替わり（0:00）を基準に通知します。例: 10分前 → 直前の 23:50
+            </p>
           )}
-          {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
     </div>

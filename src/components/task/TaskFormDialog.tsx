@@ -9,7 +9,7 @@ import { validateForm, type FormValues } from '@/lib/validation';
 import { createTask, updateTask } from '@/lib/taskRepo';
 import { fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { showToast } from '@/components/ui/Toast';
-import type { RecurrenceRule, Task, TaskType } from '@/types';
+import type { Task, TaskType } from '@/types';
 
 interface Props {
   open: boolean;
@@ -81,13 +81,36 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
       const d = new Date();
       d.setMinutes(d.getMinutes() + 60);
       const iso = d.toISOString();
-      setValues((prev) => ({ ...prev, due_date: iso }));
+      // 期限と繰り返しは排他。期限ON時は繰り返しを解除する。
+      setValues((prev) => ({
+        ...prev,
+        due_date: iso,
+        reminder_offset: null,
+        recurrence_rule: null,
+      }));
     } else {
       setValues((prev) => ({
         ...prev,
         due_date: null,
         reminder_offset: null,
+      }));
+    }
+  };
+
+  const handleRecurrenceToggle = (on: boolean) => {
+    if (on) {
+      // 排他。繰り返しON時は期限を解除する。
+      setValues((prev) => ({
+        ...prev,
+        recurrence_rule: { type: 'daily' },
+        due_date: null,
+        reminder_offset: null,
+      }));
+    } else {
+      setValues((prev) => ({
+        ...prev,
         recurrence_rule: null,
+        reminder_offset: null,
       }));
     }
   };
@@ -226,21 +249,23 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
                 onOffsetChange={(v) => setField('reminder_offset', v)}
                 error={errors.reminder_offset}
               />
-
-              <RecurrenceField
-                enabled={values.recurrence_rule !== null}
-                onEnabledChange={(on) =>
-                  setField(
-                    'recurrence_rule',
-                    on ? ({ type: 'daily', interval: 1 } as RecurrenceRule) : null,
-                  )
-                }
-                rule={values.recurrence_rule}
-                onRuleChange={(rule) => setField('recurrence_rule', rule)}
-                error={errors.recurrence_rule}
-              />
             </div>
           )}
+        </div>
+
+        <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-2">
+            <RecurrenceField
+              enabled={values.recurrence_rule !== null}
+              onEnabledChange={handleRecurrenceToggle}
+              rule={values.recurrence_rule}
+              onRuleChange={(rule) => setField('recurrence_rule', rule)}
+              reminderOffset={values.reminder_offset}
+              onReminderEnabledChange={(on) => setField('reminder_offset', on ? 30 : null)}
+              onReminderOffsetChange={(v) => setField('reminder_offset', v)}
+              reminderError={errors.reminder_offset}
+            />
+          </div>
         </div>
 
         <div className="space-y-1 pt-2 border-t border-slate-200 dark:border-slate-800">

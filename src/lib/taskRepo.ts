@@ -1,9 +1,9 @@
 import { db } from './db';
 import { storage } from './storage';
 import { calcReminderTime } from './reminder';
-import { calcNextDueDate } from './recurrence';
+import { isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
-import type { RecurrenceRule, Task, TaskType } from '@/types';
+import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
 
 function generateId(): string {
   const bytes = new Uint8Array(16);
@@ -38,10 +38,15 @@ function normalizeProjectName(name: string | null): string | null {
 function buildTask(input: TaskInput, base?: Task): Task {
   const now = Date.now();
   const due = input.due_date && input.due_date.length > 0 ? input.due_date : null;
-  const reminderOffset = due ? input.reminder_offset : null;
-  const reminderTime =
-    due && reminderOffset !== null ? calcReminderTime(due, reminderOffset) : null;
-  const recurrence = due ? input.recurrence_rule : null;
+  // 期限と繰り返しは排他。期限があれば繰り返しは無効化する。
+  const recurrence: RecurrenceRule | null =
+    due || !input.recurrence_rule ? null : { type: input.recurrence_rule.type };
+  const reminderOffset = due || recurrence ? input.reminder_offset : null;
+  let reminderTime: string | null = null;
+  if (reminderOffset !== null) {
+    if (due) reminderTime = calcReminderTime(due, reminderOffset);
+    else if (recurrence) reminderTime = recurrenceReminderTime(now, recurrence.type, reminderOffset);
+  }
 
   const isQuantitative = input.type === 'quantitative';
   const currentValue = isQuantitative ? (input.current_value ?? 0) : null;
@@ -102,46 +107,25 @@ export async function deleteTask(id: string): Promise<void> {
   scheduleSync();
 }
 
-function buildSuccessor(base: Task, intendedDue: string, now: number): Task {
-  const intendedTs = new Date(intendedDue).getTime();
-  const isMissed = intendedTs < now;
-  const reminderTime =
-    !isMissed && base.reminder_offset !== null
-      ? calcReminderTime(intendedDue, base.reminder_offset)
-      : null;
-  return {
-    id: generateId(),
-    sync_code: base.sync_code,
-    title: base.title,
-    type: base.type,
-    status: 'active',
-    current_value: base.type === 'quantitative' ? 0 : null,
-    target_value: base.target_value,
-    due_date: isMissed ? null : intendedDue,
-    reminder_offset: isMissed ? null : base.reminder_offset,
-    reminder_time: reminderTime,
-    recurrence_rule: base.recurrence_rule,
-    project_name: base.project_name,
-    sort_order: null,
-    created_at: now,
-    updated_at: now,
-    next_generated: false,
-    missed_due_date: isMissed ? intendedDue : null,
-  };
+function newCompletionLog(taskId: string, completedAt: number): CompletionLog {
+  return { id: generateId(), task_id: taskId, completed_at: completedAt };
 }
 
 export async function completeTask(id: string): Promise<Task> {
   let result: Task = null as unknown as Task;
-  await db.transaction('rw', db.tasks, async () => {
+  await db.transaction('rw', db.tasks, db.completions, async () => {
     const existing = await db.tasks.get(id);
     if (!existing) throw new Error(`Task ${id} not found`);
+    const now = Date.now();
     const completed: Task = {
       ...existing,
       status: 'completed',
       next_generated: false,
-      updated_at: Date.now(),
+      updated_at: now,
     };
     await db.tasks.put(completed);
+    // 繰り返しタスクは復活時に completed が消えるため、完了をログへ残す（レポート用）。
+    if (existing.recurrence_rule) await db.completions.add(newCompletionLog(id, now));
     result = completed;
   });
   scheduleSync();
@@ -149,20 +133,30 @@ export async function completeTask(id: string): Promise<Task> {
 }
 
 export async function uncompleteTask(id: string): Promise<void> {
-  const existing = await db.tasks.get(id);
-  if (!existing) return;
-  await db.tasks.put({
-    ...existing,
-    status: 'active',
-    next_generated: false,
-    updated_at: Date.now(),
+  await db.transaction('rw', db.tasks, db.completions, async () => {
+    const existing = await db.tasks.get(id);
+    if (!existing) return;
+    await db.tasks.put({
+      ...existing,
+      status: 'active',
+      next_generated: false,
+      updated_at: Date.now(),
+    });
+    // 完了を取り消したら直近の完了ログも取り消す。
+    if (existing.recurrence_rule) await removeLatestCompletion(id);
   });
   scheduleSync();
 }
 
+async function removeLatestCompletion(taskId: string): Promise<void> {
+  const logs = await db.completions.where('task_id').equals(taskId).sortBy('completed_at');
+  const last = logs[logs.length - 1];
+  if (last) await db.completions.delete(last.id);
+}
+
 export async function setQuantitativeValue(id: string, value: number): Promise<Task | null> {
   let task: Task | null = null;
-  await db.transaction('rw', db.tasks, async () => {
+  await db.transaction('rw', db.tasks, db.completions, async () => {
     const existing = await db.tasks.get(id);
     if (!existing || existing.type !== 'quantitative' || existing.target_value === null) return;
     const sanitized = Math.max(0, Math.floor(value));
@@ -176,6 +170,7 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
         updated_at: now,
       };
       await db.tasks.put(completed);
+      if (existing.recurrence_rule) await db.completions.add(newCompletionLog(id, now));
       task = completed;
     } else {
       task = { ...existing, current_value: sanitized, updated_at: now };
@@ -186,37 +181,49 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
   return task;
 }
 
-export async function materializeRecurringTasks(now: number = Date.now()): Promise<number> {
-  let createdCount = 0;
+/**
+ * 繰り返しタスクをカレンダー境界で「復活」させる。
+ *  - 完了済みの繰り返しタスクは、期間が変わっていれば未完了へ戻す（定量は現在値0リセット）。
+ *  - アクティブな繰り返しタスクのリマインダーは、現在期間の境界(0:00)−offset へ揃える
+ *    （未完了のまま持ち越しても次の期間で再通知される）。
+ */
+export async function reviveRecurringTasks(now: number = Date.now()): Promise<number> {
+  let revived = 0;
+  let dirty = false;
   await db.transaction('rw', db.tasks, async () => {
-    const completed = await db.tasks.where('status').equals('completed').toArray();
-    for (const t of completed) {
-      if (t.next_generated) continue;
-      if (!t.recurrence_rule || !t.due_date) continue;
-      if (t.recurrence_rule.interval < 1) continue;
+    const tasks = await db.tasks
+      .filter((t) => t.recurrence_rule != null && t.status !== 'deleted')
+      .toArray();
+    for (const t of tasks) {
+      const rule = t.recurrence_rule!;
+      const next: Task = { ...t };
+      let changed = false;
 
-      let cursor = calcNextDueDate(t.due_date, t.recurrence_rule);
-      let safety = 0;
-      const successors: Task[] = [];
-      while (new Date(cursor).getTime() <= now && safety < 10000) {
-        successors.push(buildSuccessor(t, cursor, now));
-        const nextCursor = calcNextDueDate(cursor, t.recurrence_rule);
-        if (nextCursor === cursor) break;
-        cursor = nextCursor;
-        safety++;
+      if (t.status === 'completed' && isPeriodElapsed(t.updated_at, now, rule.type)) {
+        next.status = 'active';
+        next.next_generated = false;
+        if (t.type === 'quantitative') next.current_value = 0;
+        changed = true;
+        revived++;
       }
 
-      if (successors.length === 0) continue;
-
-      for (const s of successors) {
-        await db.tasks.put(s);
+      if (next.status === 'active' && next.reminder_offset !== null) {
+        const desired = recurrenceReminderTime(now, rule.type, next.reminder_offset);
+        if (desired !== next.reminder_time) {
+          next.reminder_time = desired;
+          changed = true;
+        }
       }
-      await db.tasks.put({ ...t, next_generated: true, updated_at: Date.now() });
-      createdCount += successors.length;
+
+      if (changed) {
+        next.updated_at = Date.now();
+        await db.tasks.put(next);
+        dirty = true;
+      }
     }
   });
-  if (createdCount > 0) scheduleSync();
-  return createdCount;
+  if (dirty) scheduleSync();
+  return revived;
 }
 
 export async function purgeLocalCleanup(): Promise<number> {

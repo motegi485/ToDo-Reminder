@@ -1,5 +1,6 @@
 import { CONSTANTS } from './constants';
 import type { RecurrenceRule, TaskType } from '@/types';
+import { periodMinutes } from './recurrence';
 import { isValidSyncCode } from './syncCode';
 
 export interface FormValues {
@@ -67,23 +68,10 @@ export function validateForm(v: FormValues, now: number = Date.now()): Validatio
     }
   }
 
-  // V-7 reminder × recurrence
-  if (v.reminder_offset !== null && v.recurrence_rule) {
-    const days =
-      v.recurrence_rule.type === 'daily'
-        ? 1
-        : v.recurrence_rule.type === 'weekly'
-          ? 7
-          : v.recurrence_rule.interval;
-    if (!errors.reminder_offset && v.reminder_offset >= days * 1440) {
-      errors.reminder_offset = 'リマインダーが繰り返し間隔を超えています';
-    }
-  }
-
-  // V-8 recurrence interval
-  if (v.recurrence_rule) {
-    if (!Number.isInteger(v.recurrence_rule.interval) || v.recurrence_rule.interval < 1) {
-      errors.recurrence_rule = '繰り返し間隔は 1 以上にしてください';
+  // V-7 reminder × recurrence（リマインダーは繰り返し期間より短くする）
+  if (v.reminder_offset !== null && v.recurrence_rule && !errors.reminder_offset) {
+    if (v.reminder_offset >= periodMinutes(v.recurrence_rule.type)) {
+      errors.reminder_offset = 'リマインダーが繰り返し期間を超えています';
     }
   }
 

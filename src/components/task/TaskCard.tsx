@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MoreVertical } from 'lucide-react';
+import { MoreVertical, Repeat } from 'lucide-react';
 import { accentFor } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
@@ -43,6 +43,9 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
   const due = task.due_date ? formatDueLabel(task.due_date) : null;
   const missed = task.missed_due_date ? formatDueLabel(task.missed_due_date) : null;
+  const recurrenceLabel = task.recurrence_rule
+    ? { daily: '毎日', weekly: '毎週', monthly: '毎月' }[task.recurrence_rule.type]
+    : null;
 
   // 実状態が completed になったら楽観表示(pending)を解除して整合させる
   useEffect(() => {
@@ -180,6 +183,14 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           {/* 期限切れ表示（従来どおり） */}
           {missed && !completed && (
             <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
+          )}
+
+          {/* 繰り返しラベル */}
+          {recurrenceLabel && (
+            <div className="mt-1 flex items-center gap-1 text-[12px] text-slate-500 dark:text-slate-400">
+              <Repeat size={12} aria-hidden />
+              {recurrenceLabel}
+            </div>
           )}
 
           {/* プロジェクトラベル（従来どおり） */}
