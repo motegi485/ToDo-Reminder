@@ -31,10 +31,24 @@
 
 /* Prevent iOS Safari auto-zoom on input focus (triggered when font-size < 16px) */
 @media screen and (max-width: 767px) {
-  input,
+  /* datetime-local / date / time はフォーカスでテキストキーボードを出さず（ホイールピッカー）
+     ズームの心配がない。16px を強制するとネイティブ日付コントロールの幅が広がり、
+     ボトムシートからはみ出すため除外する。 */
+  input:not([type='datetime-local']):not([type='date']):not([type='time']),
   select,
   textarea {
     font-size: 16px !important;
+  }
+
+  /* モバイル（特にiOS）の datetime-local はネイティブ固有の最小幅を持ち、
+     width:100% を無視して枠が右にはみ出す。appearance を解除して幅指定を効かせ、
+     ボトムシート内に収める。値の表示・ピッカーの動作はそのまま。 */
+  input[type='datetime-local'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
   }
 }
 
