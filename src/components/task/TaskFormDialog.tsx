@@ -146,7 +146,30 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
   };
 
   return (
-    <FormDialog open={open} onClose={onClose} ariaLabel={editing ? 'タスクを編集' : 'タスクを追加'}>
+    <FormDialog
+      open={open}
+      onClose={onClose}
+      ariaLabel={editing ? 'タスクを編集' : 'タスクを追加'}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+          >
+            キャンセル
+          </button>
+          <button
+            type="button"
+            disabled={!canSubmit}
+            onClick={handleSubmit}
+            className="px-4 py-2 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+          >
+            {editing ? '保存' : '追加'}
+          </button>
+        </div>
+      }
+    >
       <div className="p-5 space-y-4">
         <h2 className="text-lg font-semibold">{editing ? 'タスクを編集' : 'タスクを追加'}</h2>
 
@@ -238,7 +261,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
                 type="datetime-local"
                 value={toLocalInputValue(values.due_date)}
                 onChange={(e) => setField('due_date', fromLocalInputValue(e.target.value))}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                className="block w-full min-w-0 max-w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
               />
               {errors.due_date && <p className="text-xs text-red-600">{errors.due_date}</p>}
 
@@ -278,24 +301,6 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             onChange={(v) => setField('project_name', v)}
           />
           {errors.project_name && <p className="text-xs text-red-600">{errors.project_name}</p>}
-        </div>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            disabled={!canSubmit}
-            onClick={handleSubmit}
-            className="px-4 py-2 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-          >
-            {editing ? '保存' : '追加'}
-          </button>
         </div>
       </div>
     </FormDialog>
