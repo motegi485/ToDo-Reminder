@@ -1,18 +1,6 @@
 import { db } from './db';
+import { startOfDay, startOfWeek } from './recurrence';
 import type { Task } from '@/types';
-
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function startOfWeek(d: Date): Date {
-  const x = startOfDay(d);
-  const day = (x.getDay() + 6) % 7; // Monday=0
-  x.setDate(x.getDate() - day);
-  return x;
-}
 
 function dayKey(d: Date): string {
   const y = d.getFullYear();
@@ -31,21 +19,25 @@ export async function getWeeklyCompletionRate(now: Date = new Date()): Promise<W
   const weekStart = startOfWeek(now).getTime();
   const tasks = await db.tasks.where('updated_at').above(weekStart).toArray();
   const inWeek = tasks.filter((t) => t.status !== 'deleted');
-  const completed = inWeek.filter((t) => t.status === 'completed').length;
+  // 今週中に完了した繰り返しタスク（復活して active に戻っていても完了扱いにする）。
+  const recurDoneIds = new Set(
+    (await db.completions.where('completed_at').above(weekStart).toArray()).map((c) => c.task_id),
+  );
+  const completed = inWeek.filter(
+    (t) => t.status === 'completed' || (t.recurrence_rule != null && recurDoneIds.has(t.id)),
+  ).length;
   const total = inWeek.length;
   const rate = total === 0 ? 0 : (completed / total) * 100;
   return { rate, completed, total };
 }
 
 export async function getStreak(now: Date = new Date()): Promise<number> {
-  const tasks = await db.tasks.toArray();
-  const recurringCompleted = tasks.filter(
-    (t) => t.status === 'completed' && t.recurrence_rule !== null,
-  );
-  if (recurringCompleted.length === 0) return 0;
+  // 繰り返しタスクの完了はログに蓄積される（復活で completed が消えるため）。
+  const logs = await db.completions.toArray();
+  if (logs.length === 0) return 0;
   const days = new Set<string>();
-  for (const t of recurringCompleted) {
-    days.add(dayKey(new Date(t.updated_at)));
+  for (const c of logs) {
+    days.add(dayKey(new Date(c.completed_at)));
   }
   let streak = 0;
   const cursor = startOfDay(now);
@@ -65,18 +57,28 @@ export interface DayCount {
 export async function getMonthlyCompletions(days: number = 30, now: Date = new Date()): Promise<DayCount[]> {
   const start = startOfDay(now);
   start.setDate(start.getDate() - (days - 1));
-  const tasks = await db.tasks.where('updated_at').above(start.getTime()).toArray();
-  const completed = tasks.filter((t) => t.status === 'completed');
+  const startMs = start.getTime();
+
   const map = new Map<string, number>();
   for (let i = 0; i < days; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     map.set(dayKey(d), 0);
   }
-  for (const t of completed) {
-    const k = dayKey(new Date(t.updated_at));
+
+  const bump = (ms: number) => {
+    const k = dayKey(new Date(ms));
     if (map.has(k)) map.set(k, map.get(k)! + 1);
+  };
+
+  // 非繰り返しは完了タスクの updated_at、繰り返しは完了ログを集計する。
+  const tasks = await db.tasks.where('updated_at').above(startMs).toArray();
+  for (const t of tasks) {
+    if (t.status === 'completed' && t.recurrence_rule == null) bump(t.updated_at);
   }
+  const logs = await db.completions.where('completed_at').above(startMs).toArray();
+  for (const c of logs) bump(c.completed_at);
+
   return Array.from(map.entries()).map(([key, count]) => {
     const [, m, d] = key.split('-');
     return { key, label: `${Number(m)}/${Number(d)}`, count };

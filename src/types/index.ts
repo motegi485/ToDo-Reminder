@@ -1,11 +1,17 @@
 export type TaskType = 'simple' | 'quantitative';
 export type TaskStatus = 'active' | 'completed' | 'deleted';
 
-export type RecurrenceType = 'daily' | 'weekly' | 'custom';
+export type RecurrenceType = 'daily' | 'weekly' | 'monthly';
 
 export interface RecurrenceRule {
   type: RecurrenceType;
-  interval: number;
+}
+
+/** 繰り返しタスクを完了した記録（レポート集計用、ローカル保存）。 */
+export interface CompletionLog {
+  id: string;
+  task_id: string;
+  completed_at: number;
 }
 
 export interface Task {

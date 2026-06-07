@@ -4,7 +4,7 @@ import { Layout } from '@/components/layout/Layout';
 import { ToastContainer } from '@/components/ui/Toast';
 import { MobilePwaGuide } from '@/components/ui/MobilePwaGuide';
 import { fireDueLocalNotifications } from '@/lib/offlineNotify';
-import { materializeRecurringTasks } from '@/lib/taskRepo';
+import { reviveRecurringTasks } from '@/lib/taskRepo';
 import { runSync } from '@/lib/sync';
 import { CONSTANTS } from '@/lib/constants';
 import ListPage from '@/pages/ListPage';
@@ -14,7 +14,7 @@ import SettingsPage from '@/pages/SettingsPage';
 export default function App() {
   useEffect(() => {
     const run = () => {
-      materializeRecurringTasks()
+      reviveRecurringTasks()
         .catch(() => {})
         .finally(() => {
           fireDueLocalNotifications().catch(() => {});
@@ -25,10 +25,8 @@ export default function App() {
       if (document.visibilityState === 'visible') run();
     };
     document.addEventListener('visibilitychange', onVis);
-    // アプリを開いたままでもリマインダー時刻に通知が出るよう定期的に確認する。
-    const intervalId = setInterval(() => {
-      fireDueLocalNotifications().catch(() => {});
-    }, CONSTANTS.LOCAL_NOTIFY_INTERVAL_MS);
+    // アプリを開いたままでも 0:00 の切り替わりで復活し、リマインダー時刻に通知が出るよう定期的に確認する。
+    const intervalId = setInterval(run, CONSTANTS.LOCAL_NOTIFY_INTERVAL_MS);
     return () => {
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(intervalId);
