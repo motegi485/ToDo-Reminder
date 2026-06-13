@@ -228,7 +228,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             <MoreVertical size={18} />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-sm">
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[15px]">
               <button
                 type="button"
                 className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"

@@ -39,7 +39,7 @@ export function ReminderField({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-medium">リマインダーを設定</label>
+        <label className="text-[15px] font-medium">リマインダーを設定</label>
         <Toggle checked={enabled} onChange={onEnabledChange} label="リマインダーを設定" />
       </div>
       {enabled && (
@@ -48,7 +48,7 @@ export function ReminderField({
             value={isCustom ? 'custom' : String(offset ?? 30)}
             onChange={(e) => handlePresetChange(e.target.value)}
             disabled={disabled}
-            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[15px]"
           >
             {REMINDER_PRESETS.map((p) => (
               <option key={p.value} value={p.value}>
@@ -58,7 +58,7 @@ export function ReminderField({
             <option value="custom">カスタム</option>
           </select>
           {isCustom && (
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-2 text-[15px]">
               <input
                 type="text"
                 inputMode="numeric"
@@ -76,7 +76,7 @@ export function ReminderField({
               <span className="text-slate-500">分前</span>
             </div>
           )}
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p className="text-[13px] text-red-600">{error}</p>}
         </div>
       )}
     </div>

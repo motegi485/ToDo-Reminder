@@ -58,7 +58,7 @@ export function ProjectInput({ id, value, onChange }: Props) {
           placeholder="新しいプロジェクト名"
           maxLength={CONSTANTS.PROJECT_NAME_MAX_LENGTH}
           autoFocus
-          className="mt-2 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+          className="mt-2 w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[15px]"
         />
       )}
     </>
@@ -151,7 +151,7 @@ function Dropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className={`flex w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left text-sm transition-colors dark:bg-slate-900 ${
+        className={`flex w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left text-[15px] transition-colors dark:bg-slate-900 ${
           open
             ? 'border-slate-400 ring-2 ring-slate-300/50 dark:border-slate-500 dark:ring-slate-600/40'
             : 'border-slate-300 hover:border-slate-400 dark:border-slate-600 dark:hover:border-slate-500'
@@ -170,7 +170,7 @@ function Dropdown({
           <div
             ref={panelRef}
             role="listbox"
-            className="fixed z-50 overflow-auto rounded-xl border border-slate-200 bg-white py-1 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            className="fixed z-50 overflow-auto rounded-xl border border-slate-200 bg-white py-1 text-[15px] shadow-xl dark:border-slate-700 dark:bg-slate-900"
             style={{
               left: pos.left,
               width: pos.width,
