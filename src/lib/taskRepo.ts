@@ -70,6 +70,8 @@ function buildTask(input: TaskInput, base?: Task): Task {
     updated_at: now,
     next_generated: base?.next_generated ?? false,
     missed_due_date: base?.missed_due_date ?? null,
+    // 端末ローカルの UTC オフセット（分）。サーバー側の繰り返し前進計算で使う。
+    tz_offset: -new Date().getTimezoneOffset(),
   };
 }
 
@@ -208,6 +210,13 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
       }
 
       if (next.status === 'active' && next.reminder_offset !== null) {
+        // サーバーが次周期へ前進させるために端末 TZ を保持・追従させる
+        // （旧データのバックフィルと、端末移動/DST 変化への追従）。
+        const tz = -new Date().getTimezoneOffset();
+        if (next.tz_offset !== tz) {
+          next.tz_offset = tz;
+          changed = true;
+        }
         const desired = recurrenceReminderTime(now, rule.type, next.reminder_offset);
         if (desired !== next.reminder_time) {
           next.reminder_time = desired;
