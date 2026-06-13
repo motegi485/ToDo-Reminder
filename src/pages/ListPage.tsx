@@ -26,7 +26,7 @@ export default function ListPage() {
   return (
     <div className="space-y-4 pb-24">
       <header className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">タスク</h1>
+        <h1 className="text-2xl font-semibold">Task List</h1>
         <SortMenu />
       </header>
 
