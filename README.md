@@ -409,7 +409,7 @@ Push 配信が遅延した場合に備え、起動中のクライアントが直
 ### レスポンシブ
 - `Layout` は `lg` ブレイクポイント（1024px）でサイドバー／下部ナビを切替。
 - 入力 UI は `BottomSheet` で親指リーチ域に集約。
-- `useHaptic` で対応端末は触覚フィードバック。
+- `useHaptic` で対応端末は触覚フィードバック（Android/Chromium は Vibration API、iOS は 17.4〜26.4 のみ非公式 switch ハックで発火。**iOS 26.5+ は Apple がハックを塞いだため無音**）。
 - 楽観的 UI（Dexie の `useLiveQuery`）で操作の体感レイテンシを最小化。
 
 ### PWA インストール促進
