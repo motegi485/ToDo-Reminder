@@ -14,6 +14,7 @@ export interface TaskRow {
   sort_order: number | null;
   created_at: number;
   updated_at: number;
+  tz_offset: number | null;
 }
 
 export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
@@ -45,6 +46,7 @@ export function payloadToRow(task: TaskPayload): TaskRow {
     sort_order: task.sort_order,
     created_at: task.created_at,
     updated_at: task.updated_at,
+    tz_offset: task.tz_offset ?? null,
   };
 }
 
@@ -68,6 +70,7 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
     sort_order: (row.sort_order as number | null) ?? null,
     created_at: row.created_at as number,
     updated_at: row.updated_at as number,
+    tz_offset: (row.tz_offset as number | null) ?? null,
   };
 }
 
@@ -109,8 +112,8 @@ export async function applyLWW(
           `INSERT OR REPLACE INTO tasks
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
-            project_name, sort_order, created_at, updated_at, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            project_name, sort_order, created_at, updated_at, tz_offset, server_seq)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           row.id,
@@ -128,6 +131,7 @@ export async function applyLWW(
           row.sort_order,
           row.created_at,
           row.updated_at,
+          row.tz_offset,
           serverSeq,
         ),
     );
