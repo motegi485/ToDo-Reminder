@@ -15,9 +15,9 @@ const config: Config = {
   },
   plugins: [],
   safelist: [
-    'bg-slate-400', 'bg-sky-500', 'bg-teal-500', 'bg-rose-500',
-    'border-slate-400', 'border-sky-500', 'border-teal-500', 'border-rose-500',
-    'text-slate-400', 'text-sky-500', 'text-teal-500', 'text-rose-500',
+    'bg-violet-400', 'bg-sky-500', 'bg-teal-500', 'bg-rose-500',
+    'border-violet-400', 'border-sky-500', 'border-teal-500', 'border-rose-500',
+    'text-violet-400', 'text-sky-500', 'text-teal-500', 'text-rose-500',
   ],
 };
 
