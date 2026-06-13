@@ -388,7 +388,9 @@ GitHub 連携で CI/CD したい場合は、Cloudflare ダッシュボード →
 | `notificationclick` | 既存 window があれば focus + `navigate('/?task=' + id)`、なければ `openWindow` |
 
 ### オフラインフォールバック通知
-Push 配信が遅延した場合に備え、起動中のクライアントが直近 60 秒以内に来る `reminder_time` を持つ active タスクを検出して `registration.showNotification()` で表示します（`src/lib/offlineNotify.ts`）。`App.tsx` 起動時 + `visibilitychange` で発火。
+Push を購読していない環境向けに、起動中のクライアントがリマインダー時刻を過ぎた（24時間以内の）active タスクを検出して `registration.showNotification()` で表示します（`src/lib/offlineNotify.ts`）。`App.tsx` 起動時 + `visibilitychange` + 定期実行で発火。
+
+**Push 購読済みの場合は本フォールバックを実行しません**（`pushManager.getSubscription()` で判定）。サーバー Push（D1 `sent_reminders` で冪等）とローカル通知（localStorage で冪等）は重複排除ストアが別系統のため、両方走るとアプリを開いている間に同じリマインダーが二重に届きます。Push を一次経路とし、購読が無い時だけローカルにフォールバックすることで二重通知を防ぎます。多重トリガでの並行実行による二重発火も再入ガードで防止。
 
 ### 自動アップデート
 `registerType: 'autoUpdate'`。新しい SW は次回読み込み時に自動適用。
