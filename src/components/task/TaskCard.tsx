@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { MoreVertical, Repeat } from 'lucide-react';
+import { Bell, MoreVertical, Repeat } from 'lucide-react';
 import { accentFor } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
 import { haptic } from '@/hooks/useHaptic';
 import { prefersReducedMotion } from '@/lib/motion';
-import { formatDueLabel } from '@/lib/format';
+import { formatDueLabel, formatReminderOffset } from '@/lib/format';
 import type { Task } from '@/types';
 
 const COMMIT_DELAY_MS = 260;
@@ -46,6 +46,8 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const recurrenceLabel = task.recurrence_rule
     ? { daily: '毎日', weekly: '毎週', monthly: '毎月' }[task.recurrence_rule.type]
     : null;
+  const reminderLabel =
+    task.reminder_offset !== null ? formatReminderOffset(task.reminder_offset) : null;
 
   // 実状態が completed になったら楽観表示(pending)を解除して整合させる
   useEffect(() => {
@@ -185,11 +187,23 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
           )}
 
-          {/* 繰り返しラベル */}
-          {recurrenceLabel && (
-            <div className="mt-1 flex items-center gap-1 text-[12px] text-slate-500 dark:text-slate-400">
-              <Repeat size={12} aria-hidden />
-              {recurrenceLabel}
+          {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
+          {(recurrenceLabel || reminderLabel) && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-slate-500 dark:text-slate-400">
+              {recurrenceLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <Repeat size={12} aria-hidden />
+                  {recurrenceLabel}
+                </span>
+              )}
+              {recurrenceLabel && reminderLabel && <span aria-hidden>·</span>}
+              {reminderLabel && (
+                <span className="inline-flex items-center gap-1">
+                  <Bell size={12} aria-hidden />
+                  <span className="sr-only">リマインダー </span>
+                  {reminderLabel}
+                </span>
+              )}
             </div>
           )}
 
