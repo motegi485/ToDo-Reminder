@@ -13,6 +13,12 @@ export function formatDueLabel(iso: string, now: Date = new Date()): { text: str
   return { text: `${datePart} ${time}`, overdue };
 }
 
+export function formatReminderOffset(offsetMin: number): string {
+  if (offsetMin >= 1440 && offsetMin % 1440 === 0) return `${offsetMin / 1440}日前`;
+  if (offsetMin >= 60 && offsetMin % 60 === 0) return `${offsetMin / 60}時間前`;
+  return `${offsetMin}分前`;
+}
+
 export function toLocalInputValue(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
