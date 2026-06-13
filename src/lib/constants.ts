@@ -12,6 +12,8 @@ export const CONSTANTS = {
   LOCAL_NOTIFY_INTERVAL_MS: 30 * 1000,
   PROJECT_RESERVED_KEY: '__UNCATEGORIZED__',
   BREAKPOINT_LG_PX: 1024,
+  // フィードバック用 Google フォームの URL（未設定の間はボタンを無効化）
+  FEEDBACK_FORM_URL: 'https://docs.google.com/forms/d/e/xxxxxxxxxxxxxxxxxxxxxxxxxxxx/viewform?usp=publish-editor',
 } as const;
 
 export const REMINDER_PRESETS = [
