@@ -1,13 +1,25 @@
 import type { Env } from '../lib/cors';
 import { sendWebPush } from '../lib/webpush';
+import { nextReminderAfter, parseRecurrenceType } from '../lib/recurrence';
 
 interface NotifyRow {
   id: string;
   title: string;
   due_date: string | null;
   reminder_time: string;
+  reminder_offset: number | null;
+  recurrence_rule: string | null;
+  tz_offset: number | null;
   sync_code: string;
   push_subscription: string;
+}
+
+interface StaleRow {
+  id: string;
+  reminder_time: string;
+  reminder_offset: number;
+  recurrence_rule: string;
+  tz_offset: number;
 }
 
 export async function handleNotifyCron(
@@ -23,7 +35,8 @@ export async function handleNotifyCron(
   const windowEnd = nowSec;
 
   const result = await env.DB.prepare(
-    `SELECT t.id, t.title, t.due_date, t.reminder_time, t.sync_code, u.push_subscription
+    `SELECT t.id, t.title, t.due_date, t.reminder_time, t.reminder_offset,
+            t.recurrence_rule, t.tz_offset, t.sync_code, u.push_subscription
      FROM tasks t
      JOIN users u ON t.sync_code = u.sync_code
      WHERE t.status = 'active'
@@ -65,7 +78,73 @@ export async function handleNotifyCron(
             .bind(task.sync_code)
             .run();
         }
+
+        // 繰り返しタスクは送信した周期の次へ reminder_time を進める。これにより
+        // アプリを開かなくても毎周期 cron が発火する（従来はクライアントだけが
+        // 前進させていたため、開かない日は送られなかった）。
+        // updated_at / server_seq は触らない: LWW（最終更新優先の同期）を乱して
+        // クライアントの編集を取りこぼさないため。クライアントは起動時に独自に
+        // 現周期へ再計算するので、サーバー値とは自然に収束する。
+        await advanceRecurring(env, task, nowSec * 1000);
       }),
     ),
   );
+
+  // 取りこぼし回収: 窓より前に過ぎてしまった active 繰り返しの reminder_time を、
+  // 次の未来の発火時刻まで巻き戻して再開させる（ここでは送信しない）。
+  // 例: 機能導入前から滞留していた値や、編集タイミングで過去になった値を復帰させる。
+  const stale = await env.DB.prepare(
+    `SELECT t.id, t.reminder_time, t.reminder_offset, t.recurrence_rule, t.tz_offset
+     FROM tasks t
+     WHERE t.status = 'active'
+       AND t.recurrence_rule IS NOT NULL
+       AND t.reminder_offset IS NOT NULL
+       AND t.tz_offset IS NOT NULL
+       AND t.reminder_time IS NOT NULL
+       AND datetime(t.reminder_time) < datetime(?, 'unixepoch')`,
+  )
+    .bind(windowStart)
+    .all<StaleRow>();
+
+  ctx.waitUntil(
+    Promise.allSettled(
+      stale.results.map(async (task) => {
+        const type = parseRecurrenceType(task.recurrence_rule);
+        if (!type) return;
+        const next = nextReminderAfter(
+          task.reminder_time,
+          type,
+          task.reminder_offset,
+          task.tz_offset,
+          nowSec * 1000,
+        );
+        if (next !== task.reminder_time) {
+          await env.DB.prepare(`UPDATE tasks SET reminder_time = ? WHERE id = ?`)
+            .bind(next, task.id)
+            .run();
+        }
+      }),
+    ),
+  );
+}
+
+async function advanceRecurring(
+  env: Env,
+  task: NotifyRow,
+  afterMs: number,
+): Promise<void> {
+  const type = parseRecurrenceType(task.recurrence_rule);
+  if (!type || task.reminder_offset == null || task.tz_offset == null) return;
+  const next = nextReminderAfter(
+    task.reminder_time,
+    type,
+    task.reminder_offset,
+    task.tz_offset,
+    afterMs,
+  );
+  if (next !== task.reminder_time) {
+    await env.DB.prepare(`UPDATE tasks SET reminder_time = ? WHERE id = ?`)
+      .bind(next, task.id)
+      .run();
+  }
 }
