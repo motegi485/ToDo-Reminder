@@ -3,6 +3,7 @@ import { SyncFromOtherDevice } from '@/components/settings/SyncFromOtherDevice';
 import { DisplaySettings } from '@/components/settings/DisplaySettings';
 import { NotificationStatus } from '@/components/settings/NotificationStatus';
 import { DataManagement } from '@/components/settings/DataManagement';
+import { Feedback } from '@/components/settings/Feedback';
 
 export default function SettingsPage() {
   return (
@@ -13,6 +14,7 @@ export default function SettingsPage() {
       <DisplaySettings />
       <NotificationStatus />
       <DataManagement />
+      <Feedback />
     </div>
   );
 }
