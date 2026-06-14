@@ -60,7 +60,7 @@ export function SyncFromOtherDevice() {
       <ConfirmDialog
         open={confirm}
         title="他端末と同期しますか？"
-        description="現在のタスクをサーバーにアップしてから切り替えます。切り替え後は入力したコードのタスクに置き換わります。"
+        description="現在のタスクを入力したコードへ統合してから、そのコードに切り替えます。以後はそのコードのタスク一覧が表示されます。"
         confirmLabel="同期する"
         onConfirm={() => { void doSync(); }}
         onCancel={() => setConfirm(false)}

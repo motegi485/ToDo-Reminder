@@ -1,16 +1,25 @@
 import type { Task } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
+const REQUEST_TIMEOUT_MS = 15000;
 
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   if (!API_URL) throw new Error('VITE_API_URL not configured');
-  const res = await fetch(`${API_URL}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
-  return res.json() as Promise<T>;
+  // 回線ハングで同期が無期限に待たないよう、タイムアウトで中断する。
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+    return res.json() as Promise<T>;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export interface PullResponse {

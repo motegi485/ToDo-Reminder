@@ -1,7 +1,7 @@
-import type { Task } from '@/types';
 import { db } from '@/lib/db';
 import { storage } from '@/lib/storage';
 import { api } from '@/lib/api';
+import { subscribePush } from '@/lib/notifyClient';
 import { showToast } from '@/components/ui/Toast';
 
 async function pull(syncCode: string): Promise<void> {
@@ -12,12 +12,7 @@ async function pull(syncCode: string): Promise<void> {
     for (const serverTask of serverTasks) {
       const local = await db.tasks.get(serverTask.id);
       if (local && local.updated_at >= serverTask.updated_at) continue;
-      const merged: Task = {
-        ...serverTask,
-        next_generated: local?.next_generated ?? false,
-        missed_due_date: local?.missed_due_date ?? null,
-      };
-      await db.tasks.put(merged);
+      await db.tasks.put(serverTask);
     }
   });
 
@@ -71,6 +66,7 @@ export interface SwitchSyncCodeResult {
 }
 
 export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCodeResult> {
+  const oldSyncCode = storage.getSyncCode();
   const currentTasks = await db.tasks.toArray();
   const reassigned = currentTasks
     .filter((t) => t.status !== 'deleted')
@@ -84,17 +80,15 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
   window.dispatchEvent(new Event('todo-sync-code-changed'));
   storage.setLastSyncedAt(0);
 
+  // Push 購読をこの端末ごと新コードへ移す（旧コードの購読はこの端末分なので解除）。
+  // これをしないと、旧コードのリマインダーがこの端末に届き続け、新コードのリマインダーは届かなくなる。
+  await migratePushSubscription(oldSyncCode, newSyncCode);
+
   await db.tasks.clear();
 
   const { tasks: serverTasks, cursor } = await api.syncPull(newSyncCode, 0);
 
-  const merged = serverTasks
-    .filter((t) => t.status !== 'deleted')
-    .map((t) => ({
-      ...t,
-      next_generated: false as const,
-      missed_due_date: null,
-    }));
+  const merged = serverTasks.filter((t) => t.status !== 'deleted');
 
   try {
     await db.tasks.bulkPut(merged);
@@ -117,4 +111,24 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
   });
 
   return { visible: merged.length };
+}
+
+/**
+ * 同期コード切替時に Push 購読をこの端末ごと新コードへ付け替える。
+ * 通知許可済み・購読ありのときだけ動く。すべてベストエフォート（失敗しても切替は成立させる）。
+ */
+async function migratePushSubscription(
+  oldSyncCode: string | null,
+  newSyncCode: string,
+): Promise<void> {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try {
+    if (oldSyncCode && oldSyncCode !== newSyncCode) {
+      await api.pushUnsubscribe(oldSyncCode).catch(() => {});
+    }
+    // 現在の同期コード（= newSyncCode）で購読を登録し直す。
+    await subscribePush({ silent: true });
+  } catch (err) {
+    console.warn('[switchSyncCode] push migration failed:', err);
+  }
 }

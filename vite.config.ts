@@ -22,9 +22,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: false,
       manifest: false,
-      injectManifest: {
-        injectionPoint: undefined,
-      },
+      // injectionPoint は既定（self.__WB_MANIFEST）。sw.ts 内で
+      // precacheAndRoute(self.__WB_MANIFEST) を呼び、アプリシェルをオフラインキャッシュする。
       devOptions: {
         enabled: false,
       },

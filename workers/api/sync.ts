@@ -3,7 +3,8 @@ import { jsonResponse } from '../lib/cors';
 import { applyLWW, rowToPayload } from '../lib/lww';
 import type { TaskPayload } from '../lib/lww';
 
-const SYNC_CODE_RE = /^[A-Z2-9]{12}$/;
+// クライアントの生成文字集合に合わせ I/O を除外（紛らわしい文字を使わない）。
+const SYNC_CODE_RE = /^[A-HJ-NP-Z2-9]{12}$/;
 
 async function upsertUser(db: D1Database, syncCode: string): Promise<void> {
   await db
