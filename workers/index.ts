@@ -2,7 +2,6 @@ import type { Env } from './lib/cors';
 import { handleOptions, jsonResponse } from './lib/cors';
 import { handleSyncPull, handleSyncPush } from './api/sync';
 import { handlePushSubscribe, handlePushUnsubscribe } from './api/push';
-import { handleCleanupManual } from './api/cleanup';
 import { handleNotifyCron } from './cron/notify';
 import { handleCleanupCron } from './cron/cleanup';
 
@@ -21,7 +20,6 @@ export default {
       if (pathname === '/api/sync/push') return await handleSyncPush(request, env);
       if (pathname === '/api/push/subscribe') return await handlePushSubscribe(request, env);
       if (pathname === '/api/push/unsubscribe') return await handlePushUnsubscribe(request, env);
-      if (pathname === '/api/cleanup/manual') return await handleCleanupManual(request, env);
       return jsonResponse({ error: 'Not found' }, env, request, 404);
     } catch (err) {
       console.error(err);

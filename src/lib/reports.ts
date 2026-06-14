@@ -41,6 +41,8 @@ export async function getStreak(now: Date = new Date()): Promise<number> {
   }
   let streak = 0;
   const cursor = startOfDay(now);
+  // 今日まだ完了していなくても、昨日までの連続記録は途切れさせない（今日完了すれば延びる）。
+  if (!days.has(dayKey(cursor))) cursor.setDate(cursor.getDate() - 1);
   while (days.has(dayKey(cursor))) {
     streak++;
     cursor.setDate(cursor.getDate() - 1);

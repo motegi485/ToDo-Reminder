@@ -68,8 +68,6 @@ function buildTask(input: TaskInput, base?: Task): Task {
     sort_order: base?.sort_order ?? null,
     created_at: base?.created_at ?? now,
     updated_at: now,
-    next_generated: base?.next_generated ?? false,
-    missed_due_date: base?.missed_due_date ?? null,
     // 端末ローカルの UTC オフセット（分）。サーバー側の繰り返し前進計算で使う。
     tz_offset: -new Date().getTimezoneOffset(),
   };
@@ -86,7 +84,6 @@ export async function updateTask(id: string, input: TaskInput): Promise<Task | n
   const existing = await db.tasks.get(id);
   if (!existing) return null;
   const task = buildTask(input, existing);
-  task.next_generated = false;
   // 完了済みの定量タスクで、現在値が目標値を下回る編集をした場合は未完了へ戻す
   if (
     task.status === 'completed' &&
@@ -122,7 +119,6 @@ export async function completeTask(id: string): Promise<Task> {
     const completed: Task = {
       ...existing,
       status: 'completed',
-      next_generated: false,
       updated_at: now,
     };
     await db.tasks.put(completed);
@@ -141,7 +137,6 @@ export async function uncompleteTask(id: string): Promise<void> {
     await db.tasks.put({
       ...existing,
       status: 'active',
-      next_generated: false,
       updated_at: Date.now(),
     });
     // 完了を取り消したら直近の完了ログも取り消す。
@@ -168,7 +163,6 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
         ...existing,
         current_value: sanitized,
         status: 'completed',
-        next_generated: false,
         updated_at: now,
       };
       await db.tasks.put(completed);
@@ -203,7 +197,6 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
 
       if (t.status === 'completed' && isPeriodElapsed(t.updated_at, now, rule.type)) {
         next.status = 'active';
-        next.next_generated = false;
         if (t.type === 'quantitative') next.current_value = 0;
         changed = true;
         revived++;
@@ -233,13 +226,4 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
   });
   if (dirty) scheduleSync();
   return revived;
-}
-
-export async function purgeLocalCleanup(): Promise<number> {
-  const targets = await db.tasks
-    .where('status')
-    .anyOf(['completed', 'deleted'])
-    .toArray();
-  await db.tasks.bulkDelete(targets.map((t) => t.id));
-  return targets.length;
 }

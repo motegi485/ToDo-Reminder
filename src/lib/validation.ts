@@ -1,7 +1,6 @@
 import { CONSTANTS } from './constants';
 import type { RecurrenceRule, TaskType } from '@/types';
 import { periodMinutes } from './recurrence';
-import { isValidSyncCode } from './syncCode';
 
 export interface FormValues {
   title: string;
@@ -86,13 +85,4 @@ export function validateForm(v: FormValues, now: number = Date.now()): Validatio
   }
 
   return errors;
-}
-
-export function isFormValid(v: FormValues, now: number = Date.now()): boolean {
-  return Object.keys(validateForm(v, now)).length === 0;
-}
-
-// V-10 sync code (used in Settings)
-export function validateSyncCodeInput(input: string): string | null {
-  return isValidSyncCode(input) ? null : '同期コードの形式が正しくありません';
 }

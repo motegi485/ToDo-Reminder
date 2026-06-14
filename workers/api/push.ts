@@ -1,7 +1,8 @@
 import type { Env } from '../lib/cors';
 import { jsonResponse } from '../lib/cors';
 
-const SYNC_CODE_RE = /^[A-Z2-9]{12}$/;
+// クライアントの生成文字集合に合わせ I/O を除外（紛らわしい文字を使わない）。
+const SYNC_CODE_RE = /^[A-HJ-NP-Z2-9]{12}$/;
 
 export async function handlePushSubscribe(request: Request, env: Env): Promise<Response> {
   const body = await request.json<{ sync_code?: unknown; subscription?: unknown }>();

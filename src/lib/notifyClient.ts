@@ -16,15 +16,18 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   return result;
 }
 
-export async function subscribePush(): Promise<void> {
+// silent=true のときはトーストを出さない（同期コード切替時の再購読など、
+// ユーザー操作を伴わない裏側の購読更新で使う）。
+export async function subscribePush(options: { silent?: boolean } = {}): Promise<void> {
+  const { silent = false } = options;
   const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
   if (!vapidPublicKey) {
-    showToast('Push 購読はサーバー連携後に有効になります', 'info');
+    if (!silent) showToast('Push 購読はサーバー連携後に有効になります', 'info');
     return;
   }
 
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    showToast('このブラウザは Web Push をサポートしていません', 'warn');
+    if (!silent) showToast('このブラウザは Web Push をサポートしていません', 'warn');
     return;
   }
 
@@ -38,9 +41,9 @@ export async function subscribePush(): Promise<void> {
       applicationServerKey: vapidPublicKey,
     });
     await api.pushSubscribe(syncCode, subscription.toJSON() as PushSubscriptionJSON);
-    showToast('Push 通知を設定しました', 'success');
+    if (!silent) showToast('Push 通知を設定しました', 'success');
   } catch (err) {
     console.error('Push subscribe failed:', err);
-    showToast('Push 通知の設定に失敗しました', 'warn');
+    if (!silent) showToast('Push 通知の設定に失敗しました', 'warn');
   }
 }
