@@ -30,8 +30,6 @@ export interface Task {
   sort_order: number | null;
   created_at: number;
   updated_at: number;
-  next_generated: boolean;
-  missed_due_date: string | null;
   // タスク生成/更新時の端末タイムゾーンオフセット（UTC からの分。JST=+540）。
   // サーバーが繰り返しの reminder_time を次周期へ進める際にローカル境界を再現するために使う。
   tz_offset: number | null;

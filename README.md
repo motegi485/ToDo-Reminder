@@ -43,13 +43,13 @@
 - **シンプルタスク**：タイトル + 期限 + リマインド時刻 + 繰り返し設定。
 - **定量タスク**：「30 ページ読む」「10km 走る」など、目標値に対する進捗を加算で記録できる。チェックボックス＝「進捗を記録」モーダル（delta 加算）／数値タップ＝直接書き換え。
 - **プロジェクト分類**：プロジェクト名でグルーピング。展開／折り畳み状態を端末ごとに保持。
-- **繰り返しタスク**：daily / weekly / カスタム間隔。完了時に次回タスクが遅延生成（visibilitychange でも再評価）。
-- **ソート**：作成日時（新しい/古い順）、期限（近い/遠い順）の 4 種。
+- **繰り返しタスク**：daily / weekly / monthly。完了してもタスクは消えず、カレンダー境界（毎日 0:00／毎週月曜 0:00／毎月 1 日 0:00）を跨ぐと自動で未完了へ「復活」する（定量タスクは現在値が 0 にリセット）。期限と繰り返しは排他。完了は `completions` ストアに履歴として残し、レポートへ反映（visibilitychange / 定期実行でも再評価）。
+- **ソート**：作成日時（新しい/古い順）、期限（近い/遠い順）の 4 種。ネイティブ OS の `<select>` で選択。
 - **ソフト削除**：deleted 状態として保持し、365 日後にクリーンアップ Cron で物理削除。
 
 ### リマインダー / 通知
-- **オフライン通知**：起動中に期限が来たタスクを Service Worker のローカル通知で表示（直近 60 秒以内の `reminder_time` が対象）。
-- **Push 通知**：Cloudflare Workers の Cron が毎分起動し、対象タスクの購読端末に Web Push を配信。
+- **オフライン通知**：Push 未購読の環境向けに、起動中のクライアントがリマインダー時刻を過ぎた（24 時間以内の）active タスクを検出し、Service Worker のローカル通知で表示（`src/lib/offlineNotify.ts`）。
+- **Push 通知**：Cloudflare Workers の Cron が毎分起動し、対象タスクの購読端末に Web Push を配信。繰り返しタスクは送信した周期の次へ `reminder_time` をサーバー側でも前進させ、アプリ未起動でも毎周期 Push が届く（`tz_offset` で端末ローカルの境界を再現）。
 - **通知タップでフォーカス**：通知をタップすると該当タスクが開いた状態でアプリが起動する。
 
 ### 多端末同期
@@ -69,6 +69,9 @@
 - iOS / Android 用 PWA 案内モーダル（共通フラグ `todo_ios_pwa_dismissed` で 1 回 dismiss）
 - ハプティクス（対応端末のみ）
 - 楽観的 UI 更新（Dexie の `useLiveQuery` で即時反映）
+- 並べ替えアニメーション（`useFlipReorder` の FLIP。`prefers-reduced-motion` を尊重）
+- ソート・プロジェクト選択はネイティブ OS の `<select>` を採用（端末標準のピッカーで操作）
+- フィードバック導線（設定画面から Google フォームへ。`FEEDBACK_FORM_URL` 未設定時はボタン無効）
 
 ---
 
@@ -123,57 +126,62 @@
 │       └── icon-512.png        512x512（maskable 兼用）
 │
 ├── migrations/
-│   └── 0001_initial.sql        users / tasks テーブル + index
+│   ├── 0001_initial.sql        users / tasks テーブル + index
+│   ├── 0002_add_server_seq.sql tasks.server_seq（pull カーソル用のサーバー採番列）
+│   ├── 0003_sent_reminders.sql Push 二重送信を防ぐ冪等ガード表
+│   └── 0004_add_tz_offset.sql  tasks.tz_offset（端末 TZ。サーバー側の繰り返し前進計算用）
 │
 ├── workers/                    Cloudflare Workers ソース
 │   ├── index.ts                fetch + scheduled エントリ
 │   ├── api/
 │   │   ├── sync.ts             /api/sync/pull, /api/sync/push
-│   │   ├── push.ts             /api/push/subscribe, /api/push/unsubscribe
-│   │   └── cleanup.ts          /api/cleanup/manual
+│   │   └── push.ts             /api/push/subscribe, /api/push/unsubscribe
 │   ├── cron/
-│   │   ├── notify.ts           毎分: Push 配信
+│   │   ├── notify.ts           毎分: Push 配信 + 繰り返し reminder_time の前進/取りこぼし回収
 │   │   └── cleanup.ts          日次 03:00 UTC: 物理削除
 │   └── lib/
 │       ├── cors.ts             CORS ヘルパ + jsonResponse
 │       ├── lww.ts              Last-Write-Wins マージ
+│       ├── recurrence.ts       tz_offset で繰り返し reminder_time を次周期へ前進
 │       └── webpush.ts          @block65/webcrypto-web-push のラッパ
 │
 └── src/                        フロントエンド
     ├── main.tsx                エントリ
-    ├── App.tsx                 ルータ + 起動時の同期/材化トリガ
+    ├── App.tsx                 ルータ + 起動時の同期/繰り返し復活/ローカル通知トリガ
     ├── sw.ts                   Service Worker（push / notificationclick）
     │
     ├── pages/
     │   ├── ListPage.tsx        タスク一覧
     │   ├── ReportPage.tsx      週間達成率・ストリーク・月次・定量
-    │   └── SettingsPage.tsx    同期・表示・通知・データ
+    │   └── SettingsPage.tsx    同期・表示・通知・データ・フィードバック
     │
     ├── components/
     │   ├── layout/             Layout, Sidebar, BottomNav, OfflineBanner
-    │   ├── task/               TaskCard, TaskFormDialog, QuantitativeProgress, ...
+    │   ├── task/               TaskCard, TaskFormDialog, QuantitativeProgress, RecurrenceField,
+    │   │                       ReminderField, SortMenu, EmptyState, accentColor.ts
     │   ├── project/            ProjectGroup, ProjectInput
     │   ├── report/             RingChart, StreakCard, MonthlyBarChart, QuantitativeList
     │   ├── settings/           SyncCodeCard, SyncFromOtherDevice, NotificationStatus,
-    │   │                       DisplaySettings, DataManagement
+    │   │                       DisplaySettings, DataManagement, Feedback
     │   └── ui/                 Modal, BottomSheet, FormDialog, Toggle, FAB, Toast,
     │                           ConfirmDialog, SegmentedControl, MobilePwaGuide
     │
-    ├── hooks/                  useDarkMode, useTasks, useSortOrder, useProjects,
-    │                           useHaptic
+    ├── hooks/                  useDarkMode, useSortOrder, useProjects,
+    │                           useHaptic, useFlipReorder, useIsDesktop
     │
     ├── lib/
-    │   ├── db.ts               Dexie スキーマ（v1→v2 マイグレーション含む）
+    │   ├── db.ts               Dexie スキーマ（v1→v3。completions ストア含む）
     │   ├── storage.ts          LocalStorage 型付きラッパ
     │   ├── constants.ts        SYNC_INTERVAL_MS, TITLE_MAX_LENGTH 等
     │   ├── syncCode.ts         12 桁コード生成
-    │   ├── taskRepo.ts         CRUD + 繰り返し材化 + ソフト削除
+    │   ├── taskRepo.ts         CRUD + 繰り返し復活(revive) + 完了ログ + ソフト削除
     │   ├── reminder.ts         due_date + offset → reminder_time 計算
-    │   ├── recurrence.ts       次回 due_date 計算
-    │   ├── reports.ts          集計ロジック
+    │   ├── recurrence.ts       繰り返し境界(0:00)計算・復活判定・リマインダー時刻
+    │   ├── reports.ts          集計ロジック（completions ベースのストリーク等）
     │   ├── validation.ts       入力バリデーション
     │   ├── sort.ts             ソート関数
     │   ├── format.ts           日付・進捗フォーマッタ
+    │   ├── motion.ts           prefers-reduced-motion 判定
     │   ├── projectExpansion.ts プロジェクト展開状態の永続化
     │   ├── mobileDetect.ts     iOS / Android / Standalone 判定
     │   ├── api.ts              fetch ラッパ（syncPull / syncPush / pushSubscribe）
@@ -182,7 +190,7 @@
     │   └── offlineNotify.ts    fireDueLocalNotifications（起動中 SW 通知）
     │
     ├── styles/global.css       Tailwind layer + safe-top など
-    └── types/index.ts          Task / User / SortOrder 型定義
+    └── types/index.ts          Task / User / SortOrder / CompletionLog / RecurrenceRule 型定義
 ```
 
 ---
@@ -191,15 +199,18 @@
 
 ### クライアント（IndexedDB / Dexie）
 
-データベース名：`TodoDB`、最新バージョン：`2`。
+データベース名：`TodoDB`、最新バージョン：`3`。
 
 | ストア | キー | 説明 |
 |---|---|---|
 | `users` | `sync_code` | 同期コードと Push 購読情報 |
 | `tasks` | `id` (UUID v4) | タスク本体。インデックスは `sync_code, status, reminder_time, due_date, project_name, created_at, updated_at` |
 | `meta` | `key` | 補助メタ（拡張用） |
+| `completions` | `id` | 繰り返しタスクの完了履歴（`task_id, completed_at`）。復活で `completed` が消えてもストリーク等を集計できるようローカル保持 |
 
-`Task` 型のうち、`next_generated`（繰り返し材化済みフラグ）と `missed_due_date`（消化漏れの日付）はクライアント専用フィールドで、サーバー pull 時にデフォルト値で再構成されます（`src/lib/sync.ts`）。
+`v3` で繰り返しを「次回タスクの生成」から「同じタスクの復活」方式へ移行し、旧 `custom` を `daily` に変換、旧方式で溜まった完了済み繰り返しタスクを `completions` へ転記して凍結します（`src/lib/db.ts`）。
+
+`Task` 型のうち、`next_generated` と `missed_due_date` はクライアント専用フィールドで、サーバー pull 時にデフォルト値で再構成されます（`src/lib/sync.ts`）。`tz_offset`（端末の UTC オフセット分。JST=+540）はサーバーにも同期され、Workers が繰り返し `reminder_time` を次周期へ進める際にローカル境界を再現するために使います。
 
 ### サーバー（Cloudflare D1）
 
@@ -214,6 +225,15 @@
 - `tasks.server_seq`（upsert 時にサーバーが採番＝サーバー時計）を追加。pull のカーソル専用。既存行は `updated_at` で初期化。
 - インデックス：`(sync_code, server_seq)`
 
+`migrations/0003_sent_reminders.sql`：
+
+- `sent_reminders(task_id, reminder_time, sent_at, PK(task_id, reminder_time))` を追加。Cron が `(task_id, reminder_time)` を `INSERT OR IGNORE` で原子的に予約し、Push を at-most-once で送る冪等ガード。`tasks` は同期で `INSERT OR REPLACE` されるため独立テーブルで管理。
+- インデックス：`sent_at`（クリーンアップ用）
+
+`migrations/0004_add_tz_offset.sql`：
+
+- `tasks.tz_offset`（端末の UTC オフセット分）を追加。Workers が繰り返しの境界（ローカルの 0:00）を厳密に計算して `reminder_time` を前進させるために使う。既存行は `NULL`（クライアントが次回 revive 時にバックフィルして同期）。
+
 ### LocalStorage キー
 
 `src/lib/storage.ts` で型付きラッパ経由のみアクセス：
@@ -227,6 +247,7 @@
 | `todo_project_states` | プロジェクトごとの展開状態 |
 | `todo_last_synced_at` | pull カーソル（サーバー採番の `server_seq` ウォーターマーク） |
 | `todo_last_pushed_at` | push カーソル（クライアント時計）。`updated_at` と同一時計で比較 |
+| `todo_notified_reminders` | 起動中ローカル通知の発火済み記録（`${taskId}@${reminder_time}` → 通知時刻）。再通知防止・7 日で間引き |
 | `todo_ios_pwa_dismissed` | PWA 案内モーダルを閉じたフラグ |
 
 ### 同期戦略（LWW）
@@ -251,8 +272,8 @@
 
 ### クリーンアップ
 
-- **クライアント**：「データ管理」で完了/削除を即座に物理削除（`purgeLocalCleanup`）。
-- **サーバー**：日次 Cron `0 3 * * *`（UTC）で `updated_at` が 365 日以前の `deleted` レコードを物理削除。
+- **クライアント**：「データ管理」の「1 年経過の完了済みタスクを削除」で、`updated_at` が 365 日（`CLEANUP_RETENTION_DAYS`）以前の `completed` / `deleted` タスクをローカルから物理削除（`src/components/settings/DataManagement.tsx` 内で `db.tasks.bulkDelete`）。
+- **サーバー**：日次 Cron `0 3 * * *`（UTC）で `updated_at` が 365 日以前の `completed` / `deleted` タスクを物理削除。あわせて 30 日以前の `sent_reminders`（冪等ガード記録）も間引く。
 
 ---
 
@@ -346,7 +367,11 @@ npx wrangler secret put VAPID_SUBJECT
 npx wrangler d1 create todo-reminder-db
 # wrangler.toml.example を wrangler.toml にコピーし、出力された database_id を貼り付け
 cp wrangler.toml.example wrangler.toml   # 初回のみ（wrangler.toml は git 管理外）
+# マイグレーションは番号順に1ファイルずつ適用する（`d1 migrations apply` は使わない）
 npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0001_initial.sql
+npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0002_add_server_seq.sql
+npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0003_sent_reminders.sql
+npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0004_add_tz_offset.sql
 ```
 
 ### 4. Workers デプロイ
@@ -378,10 +403,12 @@ GitHub 連携で CI/CD したい場合は、Cloudflare ダッシュボード →
 - アイコンは 192 / 512 の 2 種類のみ（`purpose: any maskable` 兼用）。`apple-touch-icon` と通知 `badge` も `icon-192.png` を流用。
 
 ### Service Worker（`src/sw.ts`）
-`vite-plugin-pwa` の **`injectManifest` 戦略** で `src/sw.ts` をそのままビルド。実装は最小：
+`vite-plugin-pwa` の **`injectManifest` 戦略** で `src/sw.ts` をそのままビルド（`vite.config.ts` は `manifest: false`＝マニフェストは静的な `public/manifest.webmanifest` を使用）。Workbox でアプリシェルをプリキャッシュしつつ、Push 通知を処理する：
 
-| イベント | 処理 |
+| 項目 | 処理 |
 |---|---|
+| プリキャッシュ | `precacheAndRoute(self.__WB_MANIFEST)` でビルド時のアプリシェルをキャッシュし、オフラインのコールド起動でも画面が開ける。`cleanupOutdatedCaches()` で旧キャッシュを掃除 |
+| SPA ナビゲーション | `NavigationRoute` + `createHandlerBoundToURL('index.html')` で `/report` `/settings` 等へ直接アクセスしてもキャッシュ済み `index.html` を返す |
 | `install` | `skipWaiting()` |
 | `activate` | `clients.claim()` |
 | `push` | `event.data.json()` を読み、`showNotification(title, { body, icon, badge, tag, data })` |
@@ -457,7 +484,7 @@ npx wrangler d1 export todo-reminder-db --remote --output=./backup-$(date +%Y%m%
 | 通知が届かない | `wrangler tail` の Cron ログ | VAPID Secret / Subscription 失効をチェック。iOS は PWA インストール済みか確認 |
 | 同期が失敗する | フロント DevTools / Workers ログ | CORS（`ALLOWED_ORIGIN`）／`VITE_API_URL`／D1 接続を確認 |
 | アプリが開かない | Pages → Deployments | 直前のデプロイにロールバック |
-| D1 が満杯に近い | D1 Settings | クリーンアップ Cron が動作しているか確認、`/api/cleanup/manual` を手動実行 |
+| D1 が満杯に近い | D1 Settings | 日次クリーンアップ Cron（`0 3 * * *`）が動作しているか確認。必要なら `wrangler d1 execute` で古い `completed` / `deleted` を手動削除 |
 | Windows で `vite build` が落ちる（OneDrive 配下） | コンソールに `STATUS_STACK_BUFFER_OVERRUN` | プロジェクトを OneDrive 外（例 `C:\tmp\`）に退避してビルド |
 
 ### Windows ビルド時のメモリ

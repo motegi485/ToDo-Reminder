@@ -1,5 +1,11 @@
 /// <reference lib="webworker" />
-declare const self: ServiceWorkerGlobalScope;
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from 'workbox-precaching';
+import { NavigationRoute, registerRoute } from 'workbox-routing';
+import type { PrecacheEntry } from 'workbox-precaching';
+
+declare const self: ServiceWorkerGlobalScope & {
+  __WB_MANIFEST: Array<PrecacheEntry | string>;
+};
 
 interface PushPayload {
   title: string;
@@ -7,6 +13,13 @@ interface PushPayload {
   task_id?: string;
   due_date?: string;
 }
+
+// ビルド時に注入されるアプリシェル一覧をプリキャッシュし、オフラインのコールド起動でも
+// 画面が開けるようにする。autoUpdate なので新ビルドのアセットは次回起動で差し替わる。
+precacheAndRoute(self.__WB_MANIFEST);
+cleanupOutdatedCaches();
+// SPA: どのパス（/report, /settings 等）へ直接アクセスしてもキャッシュ済みの index.html を返す。
+registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html')));
 
 self.addEventListener('install', () => {
   self.skipWaiting();

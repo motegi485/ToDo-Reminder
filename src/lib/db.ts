@@ -19,21 +19,11 @@ class TodoDB extends Dexie {
       tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
       meta: 'key',
     });
-    this.version(2)
-      .stores({
-        users: 'sync_code',
-        tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
-        meta: 'key',
-      })
-      .upgrade(async (tx) => {
-        await tx
-          .table<Task>('tasks')
-          .toCollection()
-          .modify((t) => {
-            t.next_generated = t.status === 'completed';
-            t.missed_due_date = null;
-          });
-      });
+    this.version(2).stores({
+      users: 'sync_code',
+      tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
+      meta: 'key',
+    });
     // v3: 繰り返しを「同じタスクの復活」方式へ移行。
     //   - 完了ログテーブル(completions)を追加（レポート用、ローカル保存）
     //   - 旧 'custom' を 'daily' に変換
@@ -65,7 +55,6 @@ class TodoDB extends Dexie {
           // 新モデルでは期限と繰り返しは排他。生きている繰り返しタスクの期限は外す。
           if (t.recurrence_rule && t.due_date) {
             t.due_date = null;
-            t.missed_due_date = null;
             changed = true;
           }
           if (changed) await tasksTable.put(t);

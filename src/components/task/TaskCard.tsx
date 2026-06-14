@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bell, MoreVertical, Repeat } from 'lucide-react';
 import { accentFor } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
 import { haptic } from '@/hooks/useHaptic';
 import { prefersReducedMotion } from '@/lib/motion';
@@ -42,7 +43,6 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const completed = task.status === 'completed';
   const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
   const due = task.due_date ? formatDueLabel(task.due_date) : null;
-  const missed = task.missed_due_date ? formatDueLabel(task.missed_due_date) : null;
   const recurrenceLabel = task.recurrence_rule
     ? { daily: '毎日', weekly: '毎週', monthly: '毎月' }[task.recurrence_rule.type]
     : null;
@@ -54,12 +54,17 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
     if (completed) setPending(false);
   }, [completed]);
 
-  // アンマウント時に保留中のコミットを掃除する
+  // アンマウント時に保留中の完了コミットを取りこぼさず即時確定する。
+  // （楽観表示のまま別タブへ移動するなどでカードが消えても完了が失われないように）
   useEffect(() => {
     return () => {
-      if (commitTimer.current !== null) window.clearTimeout(commitTimer.current);
+      if (commitTimer.current !== null) {
+        window.clearTimeout(commitTimer.current);
+        commitTimer.current = null;
+        void completeTask(task.id);
+      }
     };
-  }, []);
+  }, [task.id]);
 
   const handleCheck = async () => {
     if (completed) {
@@ -158,7 +163,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             <QuantitativeProgress
               task={task}
               leading={
-                due && !missed ? (
+                due ? (
                   <>
                     <span className={due.overdue && !completed ? 'text-red-600 dark:text-red-400' : undefined}>
                       期限 {due.text}
@@ -171,7 +176,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           )}
 
           {/* シンプルタスクの期限行 */}
-          {task.type !== 'quantitative' && due && !missed && (
+          {task.type !== 'quantitative' && due && (
             <div
               className={[
                 'mt-1 text-[13px]',
@@ -180,11 +185,6 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             >
               期限: {due.text}
             </div>
-          )}
-
-          {/* 期限切れ表示（従来どおり） */}
-          {missed && !completed && (
-            <div className="mt-1 text-[13px] text-red-600 dark:text-red-400">期限切れ: {missed.text}</div>
           )}
 
           {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
@@ -258,6 +258,10 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
         <div
           className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
           onClick={() => setShowQuantModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="進捗を記録"
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowQuantModal(false); }}
         >
           <div
             className="m-4 max-w-sm w-full rounded-2xl bg-white dark:bg-slate-900 p-5 space-y-4 shadow-xl"
@@ -269,7 +273,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               <span>目標値: <span className="font-medium text-slate-900 dark:text-slate-100">{task.target_value ?? 0}</span></span>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-slate-600 dark:text-slate-400 shrink-0">完了値:</label>
+              <label className="text-sm text-slate-600 dark:text-slate-400 shrink-0">追加する量:</label>
               <input
                 ref={quantInputRef}
                 type="text"
@@ -305,35 +309,14 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           </div>
         </div>
       )}
-      {confirmDelete && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center"
-          onClick={() => setConfirmDelete(false)}
-        >
-          <div
-            className="m-4 max-w-sm w-full rounded-2xl bg-white dark:bg-slate-900 p-5 space-y-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="text-sm">「{task.title}」を削除しますか？</div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg text-sm bg-slate-100 dark:bg-slate-800"
-                onClick={() => setConfirmDelete(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="px-3 py-1.5 rounded-lg text-sm bg-red-600 text-white"
-                onClick={handleDelete}
-              >
-                削除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`「${task.title}」を削除しますか？`}
+        confirmLabel="削除"
+        destructive
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

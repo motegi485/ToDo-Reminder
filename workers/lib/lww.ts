@@ -19,8 +19,6 @@ export interface TaskRow {
 
 export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
   recurrence_rule: unknown;
-  next_generated?: boolean;
-  missed_due_date?: string | null;
 }
 
 export interface LWWResult {
@@ -74,18 +72,38 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
   };
 }
 
+const TASK_TYPES = new Set(['simple', 'quantitative']);
+const TASK_STATUSES = new Set(['active', 'completed', 'deleted']);
+
+/**
+ * upsert 前の最小バリデーション。1 件の壊れたペイロードで batch 全体（= 同期）が
+ * 失敗しないよう、要件を満たさない行は黙ってスキップする。
+ * D1 の CHECK/NOT NULL 制約に引っかかる値を事前に弾くのが主目的。
+ */
+function isValidPayload(t: TaskPayload): boolean {
+  return (
+    typeof t.id === 'string' &&
+    t.id.length > 0 &&
+    typeof t.title === 'string' &&
+    TASK_TYPES.has(t.type) &&
+    TASK_STATUSES.has(t.status) &&
+    Number.isFinite(t.created_at) &&
+    Number.isFinite(t.updated_at)
+  );
+}
+
 export async function applyLWW(
   db: D1Database,
   tasks: TaskPayload[],
   syncCode: string,
 ): Promise<LWWResult> {
   const result: LWWResult = { accepted: 0, conflicts: [] };
-  if (tasks.length === 0) return result;
 
-  // server_seq はサーバー到着時刻（サーバー時計）。同一バッチ内は同値でよい。
-  const serverSeq = Date.now();
+  // sync_code 一致かつ最小要件を満たす行だけ対象にする。
+  const valid = tasks.filter((t) => t.sync_code === syncCode && isValidPayload(t));
+  if (valid.length === 0) return result;
 
-  const ids = tasks.map((t) => t.id);
+  const ids = valid.map((t) => t.id);
   const placeholders = ids.map(() => '?').join(',');
   const existing = await db
     .prepare(`SELECT id, updated_at FROM tasks WHERE id IN (${placeholders})`)
@@ -94,9 +112,17 @@ export async function applyLWW(
 
   const serverMap = new Map(existing.results.map((r) => [r.id, r.updated_at]));
 
+  // server_seq は pull カーソル専用の単調増加値。Date.now() だけだと同一ミリ秒の
+  // 別バッチで重複し、`server_seq > cursor` の pull が後発バッチを取りこぼしうる。
+  // sync_code 内の現在の最大値 +1 を下限にして、必ず前進させる。
+  const maxRow = await db
+    .prepare(`SELECT MAX(server_seq) AS m FROM tasks WHERE sync_code = ?`)
+    .bind(syncCode)
+    .first<{ m: number | null }>();
+  const serverSeq = Math.max(Date.now(), (maxRow?.m ?? 0) + 1);
+
   const toUpsert: TaskRow[] = [];
-  for (const task of tasks) {
-    if (task.sync_code !== syncCode) continue;
+  for (const task of valid) {
     const serverUpdatedAt = serverMap.get(task.id);
     if (serverUpdatedAt != null && task.updated_at < serverUpdatedAt) {
       result.conflicts.push({ id: task.id, server_updated_at: serverUpdatedAt });
