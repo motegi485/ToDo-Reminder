@@ -41,4 +41,4 @@ export interface User {
   updated_at: number;
 }
 
-export type SortOrder = 'created_desc' | 'created_asc' | 'due_asc' | 'due_desc';
+export type SortOrder = 'created_desc' | 'created_asc' | 'count_asc' | 'count_desc' | 'name_asc';

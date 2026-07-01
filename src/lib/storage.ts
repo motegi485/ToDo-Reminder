@@ -44,10 +44,17 @@ export const storage = {
 
   getSortOrder(): SortOrder {
     const v = read('todo_sort_order');
-    if (v === 'created_desc' || v === 'created_asc' || v === 'due_asc' || v === 'due_desc') {
+    if (
+      v === 'created_desc' ||
+      v === 'created_asc' ||
+      v === 'count_asc' ||
+      v === 'count_desc' ||
+      v === 'name_asc'
+    ) {
       return v;
     }
-    return 'created_desc';
+    // 未設定時は従来のデフォルト挙動（残りタスクが多いプロジェクトほど上）を維持する
+    return 'count_desc';
   },
   setSortOrder(value: SortOrder): void {
     write('todo_sort_order', value);
