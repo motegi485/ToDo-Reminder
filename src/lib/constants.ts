@@ -25,6 +25,7 @@ export const REMINDER_PRESETS = [
 export const SORT_OPTIONS: ReadonlyArray<{ value: SortOrder; label: string }> = [
   { value: 'created_desc', label: '作成日時（新しい順）' },
   { value: 'created_asc', label: '作成日時（古い順）' },
-  { value: 'due_asc', label: '期限（近い順）' },
-  { value: 'due_desc', label: '期限（遠い順）' },
+  { value: 'count_asc', label: 'タスク数（少ない順）' },
+  { value: 'count_desc', label: 'タスク数（多い順）' },
+  { value: 'name_asc', label: '名前（五十音順）' },
 ] as const;

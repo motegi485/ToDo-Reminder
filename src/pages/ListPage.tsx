@@ -33,12 +33,13 @@ export default function ListPage() {
       {groups.length === 0 ? (
         <EmptyState />
       ) : (
-        groups.map((g) => (
+        groups.map((g, index) => (
           <ProjectGroup
             key={g.name ?? '__null__'}
             name={g.name}
             tasks={g.tasks}
             onEdit={handleEdit}
+            isFirstGroup={index === 0}
           />
         ))
       )}
