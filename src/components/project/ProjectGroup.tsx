@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Inbox } from 'lucide-react';
 import { TaskCard } from '@/components/task/TaskCard';
-import { sortTasks } from '@/lib/sort';
-import { useSortOrder } from '@/hooks/useSortOrder';
+import { sortTasksInGroup } from '@/lib/sort';
 import { useFlipReorder } from '@/hooks/useFlipReorder';
 import { isExpanded, toggleExpanded } from '@/lib/projectExpansion';
 import type { Task } from '@/types';
@@ -11,13 +10,13 @@ interface Props {
   name: string | null;
   tasks: Task[];
   onEdit: (task: Task) => void;
+  isFirstGroup: boolean;
 }
 
 const SYNC_EVENT = 'todo:project-states-changed';
 
-export function ProjectGroup({ name, tasks, onEdit }: Props) {
+export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
   const [open, setOpen] = useState<boolean>(() => isExpanded(name));
-  const { value: sortOrder } = useSortOrder();
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,13 +27,11 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
 
   const handleToggle = () => setOpen(toggleExpanded(name));
 
-  // 未完了はソート順で上、完了は最下部（完了が新しいものほど下）に並べる
-  const sorted = sortTasks(tasks, sortOrder);
-  const activeTasks = sorted.filter((t) => t.status === 'active');
-  const completedTasks = sorted
-    .filter((t) => t.status === 'completed')
-    .sort((a, b) => a.updated_at - b.updated_at);
-  const ordered = [...activeTasks, ...completedTasks];
+  const isUncategorized = name === null;
+
+  // 新しく作ったタスクは常に最上部、完了は最下部（完了が新しいものほど下）に並べる
+  const ordered = sortTasksInGroup(tasks);
+  const completedTasks = ordered.filter((t) => t.status === 'completed');
 
   // 並び順が変わったとき、各カードを旧位置→新位置へ FLIP スライドで補間する
   useFlipReorder(
@@ -43,14 +40,29 @@ export function ProjectGroup({ name, tasks, onEdit }: Props) {
   );
 
   return (
-    <section className="mt-7 first:mt-1">
+    <section
+      className={`mt-7 first:mt-1 ${
+        isUncategorized && !isFirstGroup
+          ? 'pt-5 border-t border-dashed border-slate-200 dark:border-slate-700'
+          : ''
+      }`}
+    >
       <button
         type="button"
         onClick={handleToggle}
         className="flex w-full items-center gap-2 px-0.5 pb-3 text-left"
       >
-        <h2 className="text-[22px] font-bold tracking-tight text-slate-900 dark:text-slate-100">
-          {name ?? 'その他'}
+        <h2 className="flex items-center gap-1.5 text-[22px] font-bold tracking-tight">
+          {isUncategorized && (
+            <Inbox size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
+          )}
+          <span
+            className={
+              isUncategorized ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'
+            }
+          >
+            {name ?? 'その他'}
+          </span>
         </h2>
         <ChevronDown
           size={19}
