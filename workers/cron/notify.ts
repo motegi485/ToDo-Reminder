@@ -1,15 +1,17 @@
 import type { Env } from '../lib/cors';
 import { sendWebPush } from '../lib/webpush';
-import { nextReminderAfter, parseRecurrenceType } from '../lib/recurrence';
+import { nextReminderAfter, parseRecurrenceType, periodStartMs } from '../lib/recurrence';
 
 interface NotifyRow {
   id: string;
   title: string;
+  status: string;
   due_date: string | null;
   reminder_time: string;
   reminder_offset: number | null;
   recurrence_rule: string | null;
   tz_offset: number | null;
+  updated_at: number;
   sync_code: string;
   push_subscription: string;
 }
@@ -45,12 +47,18 @@ export async function handleNotifyCron(
   const windowStart = nowSec - 60;
   const windowEnd = nowSec;
 
+  // 完了済み（completed）の繰り返しタスクも対象に含める: 繰り返しタスクの「復活」
+  // （期間境界での active への戻し）はクライアントにしかなく、アプリを開かない端末の
+  // サーバー行は completed のまま残る。status を書き換えると LWW 同期を乱すため、
+  // サーバーは status を触らず「復活しているはずのタスク」への送信だけを行う
+  // （実質未完了かどうかは下の periodStartMs 判定で見る）。
   const result = await env.DB.prepare(
-    `SELECT t.id, t.title, t.due_date, t.reminder_time, t.reminder_offset,
-            t.recurrence_rule, t.tz_offset, t.sync_code, u.push_subscription
+    `SELECT t.id, t.title, t.status, t.due_date, t.reminder_time, t.reminder_offset,
+            t.recurrence_rule, t.tz_offset, t.updated_at, t.sync_code, u.push_subscription
      FROM tasks t
      JOIN users u ON t.sync_code = u.sync_code
-     WHERE t.status = 'active'
+     WHERE (t.status = 'active'
+            OR (t.status = 'completed' AND t.recurrence_rule IS NOT NULL))
        AND t.reminder_time IS NOT NULL
        AND datetime(t.reminder_time) >  datetime(?, 'unixepoch')
        AND datetime(t.reminder_time) <= datetime(?, 'unixepoch')
@@ -62,6 +70,19 @@ export async function handleNotifyCron(
   ctx.waitUntil(
     Promise.allSettled(
       result.results.map(async (task) => {
+        // 完了済みの繰り返しタスクは「完了した期間より後の期間」のリマインダーだけ送る。
+        // 完了時刻（updated_at）がリマインダーの属する期間の開始より前なら、境界を
+        // 跨いで実質未完了へ復活しているので通知する。同じ期間内に完了済みなら
+        // 済んだタスクへのリマインドになるため送らない（従来どおり）。
+        if (task.status === 'completed') {
+          const type = parseRecurrenceType(task.recurrence_rule);
+          if (!type || task.reminder_offset == null || task.tz_offset == null) return;
+          const reminderMs = Date.parse(task.reminder_time);
+          if (Number.isNaN(reminderMs)) return;
+          const start = periodStartMs(reminderMs, type, task.reminder_offset, task.tz_offset);
+          if (task.updated_at >= start) return;
+        }
+
         // 冪等ガード: (task_id, reminder_time) を原子的に予約し、初回だけ送信する。
         // cron の重複起動や窓の重なりが起きても二度送らない（at-most-once）。
         const claim = await env.DB.prepare(
@@ -101,13 +122,17 @@ export async function handleNotifyCron(
     ),
   );
 
-  // 取りこぼし回収: 窓より前に過ぎてしまった active 繰り返しの reminder_time を、
+  // 取りこぼし回収: 窓より前に過ぎてしまった繰り返しの reminder_time を、
   // 次の未来の発火時刻まで巻き戻して再開させる（ここでは送信しない）。
   // 例: 機能導入前から滞留していた値や、編集タイミングで過去になった値を復帰させる。
+  // completed も対象にする: 完了操作の同期 push はクライアントが持つ現周期の
+  // reminder_time でサーバー値を上書きするため、期間が過ぎると completed のまま
+  // 過去に滞留する。ここで前進させないと、上の「復活しているはずのタスクへの送信」が
+  // 次の周期の窓に乗らない。
   const stale = await env.DB.prepare(
     `SELECT t.id, t.reminder_time, t.reminder_offset, t.recurrence_rule, t.tz_offset
      FROM tasks t
-     WHERE t.status = 'active'
+     WHERE t.status IN ('active', 'completed')
        AND t.recurrence_rule IS NOT NULL
        AND t.reminder_offset IS NOT NULL
        AND t.tz_offset IS NOT NULL
