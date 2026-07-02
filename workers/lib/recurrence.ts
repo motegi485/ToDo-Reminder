@@ -38,6 +38,26 @@ function advanceOnce(
 }
 
 /**
+ * リマインダーが属する期間の開始（ローカル 0:00）を UTC ms で返す。
+ * reminder_time + offset = その期間の終端境界なので、境界から 1 周期戻した時点が開始。
+ * 完了済みの繰り返しタスクについて「完了がこの期間より前（= 期間跨ぎで実質未完了に
+ * 復活している）か」をサーバー側で判定するために使う。
+ */
+export function periodStartMs(
+  reminderMs: number,
+  type: RecurrenceType,
+  offsetMin: number,
+  tzOffsetMin: number,
+): number {
+  const boundaryUtcMs = reminderMs + offsetMin * 60_000;
+  const d = new Date(boundaryUtcMs + tzOffsetMin * 60_000);
+  if (type === 'daily') d.setUTCDate(d.getUTCDate() - 1);
+  else if (type === 'weekly') d.setUTCDate(d.getUTCDate() - 7);
+  else d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.getTime() - tzOffsetMin * 60_000;
+}
+
+/**
  * reminder_time を「afterMs より後の最小の発火時刻」まで進めて ISO で返す。
  *  - 直近に発火した分の次へ（最低 1 周期は必ず進む）。
  *  - 取りこぼし回収では、過去に滞留した値を一気に未来へ巻き戻す。
