@@ -34,7 +34,7 @@ export function ColorPicker({ value, onChange, type, hasDue }: Props) {
 
   return (
     <div className="space-y-2">
-      <span className="text-[15px] font-medium">チェックの色</span>
+      <span className="text-[0.9375rem] font-medium">チェックの色</span>
       <div role="radiogroup" aria-label="チェックの色" className="flex flex-wrap gap-2.5">
         {/* 自動（種類に応じる） */}
         <button
@@ -51,7 +51,7 @@ export function ColorPicker({ value, onChange, type, hasDue }: Props) {
             value === null ? RING : '',
           ].join(' ')}
         >
-          <span className={`text-[11px] font-bold leading-none ${autoAccent.text}`}>A</span>
+          <span className={`text-[0.6875rem] font-bold leading-none ${autoAccent.text}`}>A</span>
         </button>
 
         {TASK_COLORS.map((c) => {

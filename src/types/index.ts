@@ -45,3 +45,6 @@ export interface User {
 }
 
 export type SortOrder = 'created_desc' | 'created_asc' | 'count_asc' | 'count_desc' | 'name_asc';
+
+// アプリ全体の文字サイズ。'md' が既定（ルート 16px）。
+export type FontSize = 'sm' | 'md' | 'lg' | 'xl';

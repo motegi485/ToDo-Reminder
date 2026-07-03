@@ -37,7 +37,7 @@ export function RecurrenceField({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-[15px] font-medium">繰り返し</label>
+        <label className="text-[0.9375rem] font-medium">繰り返し</label>
         <Toggle checked={enabled} onChange={onEnabledChange} label="繰り返し" />
       </div>
       {enabled && (
@@ -46,7 +46,7 @@ export function RecurrenceField({
             value={type}
             onChange={(e) => onRuleChange({ type: e.target.value as RecurrenceType })}
             disabled={disabled}
-            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[15px]"
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[0.9375rem]"
           >
             {TYPE_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
