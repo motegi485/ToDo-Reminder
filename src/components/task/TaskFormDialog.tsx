@@ -162,7 +162,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-lg text-[15px] bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+            className="px-5 py-3.5 rounded-lg text-base font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             キャンセル
           </button>
@@ -170,7 +170,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             type="button"
             disabled={!canSubmit}
             onClick={handleSubmit}
-            className="px-4 py-2 rounded-lg text-[15px] bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="px-5 py-3.5 rounded-lg text-base font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
           >
             {editing ? '保存' : '追加'}
           </button>

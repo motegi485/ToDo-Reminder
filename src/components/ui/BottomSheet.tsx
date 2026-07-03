@@ -184,7 +184,7 @@ export function BottomSheet({ open, onClose, children, ariaLabel, footer }: Prop
         </div>
         <div className="min-h-0 flex-auto overflow-y-auto overflow-x-hidden overscroll-contain">{children}</div>
         {footer && (
-          <div className="shrink-0 border-t border-slate-200 px-5 py-4 dark:border-slate-800">
+          <div className="shrink-0 border-t border-slate-200 px-5 pt-4 pb-[calc(1.5rem_+_env(safe-area-inset-bottom))] dark:border-slate-800">
             {footer}
           </div>
         )}
