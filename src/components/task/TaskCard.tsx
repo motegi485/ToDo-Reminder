@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, MoreVertical, Repeat } from 'lucide-react';
-import { accentFor } from './accentColor';
+import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
@@ -19,7 +19,7 @@ interface Props {
 }
 
 export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
-  const accent = accentFor(task.type, !!task.due_date);
+  const accent = accentForTask(task);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showQuantModal, setShowQuantModal] = useState(false);
@@ -300,7 +300,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               <button
                 type="button"
                 disabled={!quantDeltaValid}
-                className={`px-3 py-1.5 rounded-lg text-sm text-white ${accentFor(task.type, !!task.due_date).bg} disabled:opacity-40 disabled:cursor-not-allowed`}
+                className={`px-3 py-1.5 rounded-lg text-sm text-white ${accent.bg} disabled:opacity-40 disabled:cursor-not-allowed`}
                 onClick={() => void handleQuantCommit()}
               >
                 記録

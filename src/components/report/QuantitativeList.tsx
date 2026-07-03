@@ -1,4 +1,4 @@
-import { accentFor } from '@/components/task/accentColor';
+import { accentForTask } from '@/components/task/accentColor';
 import type { Task } from '@/types';
 
 interface Props {
@@ -29,7 +29,7 @@ export function QuantitativeList({ tasks }: Props) {
         <div key={projectName} className="space-y-2">
           <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{projectName}</div>
           {arr.map((t) => {
-            const accent = accentFor(t.type, !!t.due_date);
+            const accent = accentForTask(t);
             const target = t.target_value ?? 1;
             const current = t.current_value ?? 0;
             const ratio = Math.min(1, target === 0 ? 0 : current / target);

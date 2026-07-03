@@ -4,9 +4,11 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Toggle } from '@/components/ui/Toggle';
 import { ReminderField } from './ReminderField';
 import { RecurrenceField } from './RecurrenceField';
+import { ColorPicker } from './ColorPicker';
 import { ProjectInput } from '@/components/project/ProjectInput';
 import { validateForm, type FormValues } from '@/lib/validation';
 import { createTask, updateTask } from '@/lib/taskRepo';
+import { DEFAULT_TASK_COLOR } from '@/lib/taskColors';
 import { fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { showToast } from '@/components/ui/Toast';
 import type { Task, TaskType } from '@/types';
@@ -32,6 +34,8 @@ function emptyValues(): FormValues {
     reminder_offset: null,
     recurrence_rule: null,
     project_name: null,
+    // 新規タスクは既定色を選択状態にする（自動配色にしたい場合はユーザーが「自動」を選ぶ）。
+    color: DEFAULT_TASK_COLOR,
   };
 }
 
@@ -45,6 +49,8 @@ function fromTask(t: Task): FormValues {
     reminder_offset: t.reminder_offset,
     recurrence_rule: t.recurrence_rule,
     project_name: t.project_name,
+    // 既存タスクは保存値をそのまま。未設定（旧データ）は自動配色。
+    color: t.color ?? null,
   };
 }
 
@@ -128,6 +134,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         reminder_offset: values.reminder_offset,
         recurrence_rule: values.recurrence_rule,
         project_name: values.project_name,
+        color: values.color,
       };
       if (editing) {
         await updateTask(editing.id, payload);
@@ -188,6 +195,13 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
           />
           {errors.title && <p className="text-[13px] text-red-600">{errors.title}</p>}
         </div>
+
+        <ColorPicker
+          value={values.color}
+          onChange={(c) => setField('color', c)}
+          type={values.type}
+          hasDue={values.due_date !== null}
+        />
 
         <div className="space-y-1">
           <span className="text-[15px] font-medium">タスクの種類</span>
