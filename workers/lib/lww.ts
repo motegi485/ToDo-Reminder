@@ -15,6 +15,8 @@ export interface TaskRow {
   created_at: number;
   updated_at: number;
   tz_offset: number | null;
+  // チェックボックスのアクセント色。サーバーは解釈せず素通しで保存・返却するだけ。
+  color: string | null;
 }
 
 export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
@@ -45,6 +47,7 @@ export function payloadToRow(task: TaskPayload): TaskRow {
     created_at: task.created_at,
     updated_at: task.updated_at,
     tz_offset: task.tz_offset ?? null,
+    color: task.color ?? null,
   };
 }
 
@@ -69,6 +72,7 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
     created_at: row.created_at as number,
     updated_at: row.updated_at as number,
     tz_offset: (row.tz_offset as number | null) ?? null,
+    color: (row.color as string | null) ?? null,
   };
 }
 
@@ -138,8 +142,8 @@ export async function applyLWW(
           `INSERT OR REPLACE INTO tasks
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
-            project_name, sort_order, created_at, updated_at, tz_offset, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            project_name, sort_order, created_at, updated_at, tz_offset, color, server_seq)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           row.id,
@@ -158,6 +162,7 @@ export async function applyLWW(
           row.created_at,
           row.updated_at,
           row.tz_offset,
+          row.color,
           serverSeq,
         ),
     );

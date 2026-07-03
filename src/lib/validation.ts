@@ -11,6 +11,8 @@ export interface FormValues {
   reminder_offset: number | null;
   recurrence_rule: RecurrenceRule | null;
   project_name: string | null;
+  // チェックボックスのアクセント色。null は自動配色（種類×期限）。
+  color: string | null;
 }
 
 export type FieldKey =
