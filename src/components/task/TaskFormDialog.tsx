@@ -181,7 +181,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         <h2 className="text-xl font-semibold">{editing ? 'タスクを編集' : 'タスクを追加'}</h2>
 
         <div className="space-y-1">
-          <label className="text-[15px] font-medium" htmlFor="task-title">
+          <label className="text-[0.9375rem] font-medium" htmlFor="task-title">
             タスク名
           </label>
           <input
@@ -191,9 +191,9 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             maxLength={200}
             onChange={(e) => setField('title', e.target.value)}
             placeholder="例: 牛乳を買う"
-            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[15px]"
+            className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[0.9375rem]"
           />
-          {errors.title && <p className="text-[13px] text-red-600">{errors.title}</p>}
+          {errors.title && <p className="text-[0.8125rem] text-red-600">{errors.title}</p>}
         </div>
 
         <ColorPicker
@@ -204,7 +204,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         />
 
         <div className="space-y-1">
-          <span className="text-[15px] font-medium">タスクの種類</span>
+          <span className="text-[0.9375rem] font-medium">タスクの種類</span>
           <div>
             <SegmentedControl
               options={TYPE_OPTIONS}
@@ -222,7 +222,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         {values.type === 'quantitative' && (
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[15px] font-medium" htmlFor="task-current">
+              <label className="text-[0.9375rem] font-medium" htmlFor="task-current">
                 現在値
               </label>
               <input
@@ -235,12 +235,12 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
                   const v = e.target.value.replace(/[^0-9]/g, '');
                   setField('current_value', v === '' ? 0 : Number(v));
                 }}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right text-[15px]"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right text-[0.9375rem]"
               />
-              {errors.current_value && <p className="text-[13px] text-red-600">{errors.current_value}</p>}
+              {errors.current_value && <p className="text-[0.8125rem] text-red-600">{errors.current_value}</p>}
             </div>
             <div className="space-y-1">
-              <label className="text-[15px] font-medium" htmlFor="task-target">
+              <label className="text-[0.9375rem] font-medium" htmlFor="task-target">
                 目標値
               </label>
               <input
@@ -253,16 +253,16 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
                   const v = e.target.value.replace(/[^0-9]/g, '');
                   setField('target_value', v === '' ? null : Number(v));
                 }}
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right text-[15px]"
+                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right text-[0.9375rem]"
               />
-              {errors.target_value && <p className="text-[13px] text-red-600">{errors.target_value}</p>}
+              {errors.target_value && <p className="text-[0.8125rem] text-red-600">{errors.target_value}</p>}
             </div>
           </div>
         )}
 
         <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between pt-2">
-            <label className="text-[15px] font-medium">期限を設定</label>
+            <label className="text-[0.9375rem] font-medium">期限を設定</label>
             <Toggle
               checked={values.due_date !== null}
               onChange={handleDueToggle}
@@ -275,9 +275,9 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
                 type="datetime-local"
                 value={toLocalInputValue(values.due_date)}
                 onChange={(e) => setField('due_date', fromLocalInputValue(e.target.value))}
-                className="block w-full min-w-0 max-w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[15px]"
+                className="block w-full min-w-0 max-w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[0.9375rem]"
               />
-              {errors.due_date && <p className="text-[13px] text-red-600">{errors.due_date}</p>}
+              {errors.due_date && <p className="text-[0.8125rem] text-red-600">{errors.due_date}</p>}
 
               <ReminderField
                 enabled={values.reminder_offset !== null}
@@ -306,7 +306,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         </div>
 
         <div className="space-y-1 pt-2 border-t border-slate-200 dark:border-slate-800">
-          <label className="text-[15px] font-medium" htmlFor="task-project">
+          <label className="text-[0.9375rem] font-medium" htmlFor="task-project">
             プロジェクト
           </label>
           <ProjectInput
@@ -314,7 +314,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             value={values.project_name}
             onChange={(v) => setField('project_name', v)}
           />
-          {errors.project_name && <p className="text-[13px] text-red-600">{errors.project_name}</p>}
+          {errors.project_name && <p className="text-[0.8125rem] text-red-600">{errors.project_name}</p>}
         </div>
       </div>
     </FormDialog>

@@ -151,7 +151,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
         <div className="min-w-0 flex-1">
           <div
             className={[
-              'text-[15px] leading-snug break-words',
+              'text-[0.9375rem] leading-snug break-words',
               completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
             ].join(' ')}
           >
@@ -179,7 +179,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           {task.type !== 'quantitative' && due && (
             <div
               className={[
-                'mt-1 text-[13px]',
+                'mt-1 text-[0.8125rem]',
                 due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400',
               ].join(' ')}
             >
@@ -189,7 +189,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
 
           {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
           {(recurrenceLabel || reminderLabel) && (
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[12px] text-slate-500 dark:text-slate-400">
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.75rem] text-slate-500 dark:text-slate-400">
               {recurrenceLabel && (
                 <span className="inline-flex items-center gap-1">
                   <Repeat size={12} aria-hidden />
@@ -209,7 +209,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
 
           {/* プロジェクトラベル（従来どおり） */}
           {showProjectLabel && task.project_name && (
-            <div className="mt-0.5 text-[11px] text-slate-400">{task.project_name}</div>
+            <div className="mt-0.5 text-[0.6875rem] text-slate-400">{task.project_name}</div>
           )}
         </div>
       </div>
@@ -228,7 +228,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             <MoreVertical size={18} />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[15px]">
+            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]">
               <button
                 type="button"
                 className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -285,7 +285,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
                   if (e.key === 'Enter') { e.preventDefault(); void handleQuantCommit(); }
                   else if (e.key === 'Escape') setShowQuantModal(false);
                 }}
-                className="flex-1 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm"
                 placeholder="0"
               />
             </div>

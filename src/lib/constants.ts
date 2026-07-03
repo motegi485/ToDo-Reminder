@@ -1,4 +1,4 @@
-import type { SortOrder } from '@/types';
+import type { SortOrder, FontSize } from '@/types';
 
 export const CONSTANTS = {
   SYNC_CODE_LENGTH: 12,
@@ -28,4 +28,11 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: SortOrder; label: string }> = 
   { value: 'count_asc', label: 'タスク数（少ない順）' },
   { value: 'count_desc', label: 'タスク数（多い順）' },
   { value: 'name_asc', label: '名前（五十音順）' },
+] as const;
+
+export const FONT_SIZE_OPTIONS: ReadonlyArray<{ value: FontSize; label: string }> = [
+  { value: 'sm', label: '小' },
+  { value: 'md', label: '中' },
+  { value: 'lg', label: '大' },
+  { value: 'xl', label: '特大' },
 ] as const;

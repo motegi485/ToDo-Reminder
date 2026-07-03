@@ -52,7 +52,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
         onClick={handleToggle}
         className="flex w-full items-center gap-2 px-0.5 pb-3 text-left"
       >
-        <h2 className="flex items-center gap-1.5 text-[22px] font-bold tracking-tight">
+        <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
           {isUncategorized && (
             <Inbox size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
           )}

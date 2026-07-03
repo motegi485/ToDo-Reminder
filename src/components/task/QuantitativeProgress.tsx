@@ -41,7 +41,7 @@ export function QuantitativeProgress({ task, leading }: Props) {
   return (
     <div className="mt-1">
       {/* メタ行：期限（任意）＋ タップで直接編集できる数値 */}
-      <div className="flex items-center gap-1.5 text-[13px] text-slate-500 dark:text-slate-400">
+      <div className="flex items-center gap-1.5 text-[0.8125rem] text-slate-500 dark:text-slate-400">
         {leading}
         {editing ? (
           <span className="flex items-center gap-1">

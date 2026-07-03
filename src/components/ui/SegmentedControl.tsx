@@ -35,7 +35,7 @@ export function SegmentedControl<T extends string>({
             disabled={disabled}
             onClick={() => onChange(opt.value)}
             className={[
-              'px-3 py-1.5 text-[15px] rounded-md transition-colors',
+              'px-3 py-1.5 text-[0.9375rem] rounded-md transition-colors',
               active
                 ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white'
                 : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
