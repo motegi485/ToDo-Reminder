@@ -31,7 +31,7 @@ export function MonthlyBarChart({ data }: Props) {
         })}
         <line x1={0} y1={chartH + 4} x2={width} y2={chartH + 4} className="stroke-slate-300 dark:stroke-slate-700" strokeWidth="1" />
       </svg>
-      <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+      <div className="mt-1 flex justify-between text-[0.625rem] text-slate-500">
         <span>{data[0]?.label ?? ''}</span>
         <span>{data[data.length - 1]?.label ?? ''}</span>
       </div>

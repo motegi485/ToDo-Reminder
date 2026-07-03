@@ -10,6 +10,9 @@ if (storage.getDarkMode() === 'on') {
   document.documentElement.classList.add('dark');
 }
 
+// 文字サイズ（ルート font-size クラス）を描画前に適用し、初期表示のちらつきを防ぐ。
+document.documentElement.classList.add(`fs-${storage.getFontSize()}`);
+
 if (!storage.getSyncCode()) {
   storage.setSyncCode(generateSyncCode());
 }

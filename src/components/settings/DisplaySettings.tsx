@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Toggle } from '@/components/ui/Toggle';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { useDarkMode } from '@/hooks/useDarkMode';
+import { useFontSize } from '@/hooks/useFontSize';
 import { useSortOrder } from '@/hooks/useSortOrder';
-import { SORT_OPTIONS } from '@/lib/constants';
+import { SORT_OPTIONS, FONT_SIZE_OPTIONS } from '@/lib/constants';
 import { storage } from '@/lib/storage';
 import { applyDefaultExpansion } from '@/lib/projectExpansion';
 import { emitProjectStatesChanged } from '@/components/project/ProjectGroup';
@@ -10,6 +12,7 @@ import { useProjectGroups } from '@/hooks/useProjects';
 
 export function DisplaySettings() {
   const { dark, toggle } = useDarkMode();
+  const fontSize = useFontSize();
   const sort = useSortOrder();
   const groups = useProjectGroups();
   const [defaultExpanded, setDefaultExpanded] = useState<boolean>(() =>
@@ -37,6 +40,15 @@ export function DisplaySettings() {
           <div className="text-xs text-slate-500">アプリ内のみ反映</div>
         </div>
         <Toggle checked={dark} onChange={toggle} label="ダークモード" />
+      </div>
+      <div className="px-4 py-3 space-y-2">
+        <div className="text-sm font-medium">文字サイズ</div>
+        <SegmentedControl
+          options={FONT_SIZE_OPTIONS}
+          value={fontSize.value}
+          onChange={fontSize.set}
+          ariaLabel="文字サイズ"
+        />
       </div>
       <div className="px-4 py-3 space-y-2">
         <div className="text-sm font-medium">デフォルトのソート順</div>

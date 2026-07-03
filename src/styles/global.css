@@ -27,6 +27,22 @@
   input[inputmode='numeric'] {
     text-align: right;
   }
+
+  /* アプリ全体の文字サイズ。ルート font-size を切り替え、rem ベースの
+     文字・余白・角丸・行間をまとめて比例スケールする（実質ズーム）。
+     既定は fs-md（16px）。main.tsx が描画前に fs-* クラスを付与する。 */
+  html.fs-sm {
+    font-size: 15px;
+  }
+  html.fs-md {
+    font-size: 16px;
+  }
+  html.fs-lg {
+    font-size: 18px;
+  }
+  html.fs-xl {
+    font-size: 20px;
+  }
 }
 
 /* Prevent iOS Safari auto-zoom on input focus (triggered when font-size < 16px) */
@@ -37,7 +53,9 @@
   input:not([type='datetime-local']):not([type='date']):not([type='time']),
   select,
   textarea {
-    font-size: 16px !important;
+    /* iOS オートズーム回避のため 16px 下限は死守しつつ、文字サイズ設定（1rem）に追従させる。
+       小/中=16px、大=18px、特大=20px。 */
+    font-size: max(16px, 1rem) !important;
   }
 
   /* モバイル（特にiOS）の datetime-local はネイティブ固有の最小幅を持ち、

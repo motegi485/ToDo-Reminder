@@ -1,8 +1,9 @@
-import type { SortOrder } from '@/types';
+import type { SortOrder, FontSize } from '@/types';
 
 type StorageKey =
   | 'todo_sync_code'
   | 'todo_dark_mode'
+  | 'todo_font_size'
   | 'todo_sort_order'
   | 'todo_project_default_expanded'
   | 'todo_project_states'
@@ -40,6 +41,14 @@ export const storage = {
   },
   setDarkMode(value: 'on' | 'off'): void {
     write('todo_dark_mode', value);
+  },
+
+  getFontSize(): FontSize {
+    const v = read('todo_font_size');
+    return v === 'sm' || v === 'lg' || v === 'xl' ? v : 'md';
+  },
+  setFontSize(value: FontSize): void {
+    write('todo_font_size', value);
   },
 
   getSortOrder(): SortOrder {

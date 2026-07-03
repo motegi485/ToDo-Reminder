@@ -46,13 +46,13 @@ export function SyncFromOtherDevice() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="A3F7-K2M9-X1QR"
-          className="flex-1 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono tracking-widest"
+          className="flex-1 min-w-0 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-mono tracking-widest"
         />
         <button
           type="button"
           onClick={handleSync}
           disabled={!valid || loading}
-          className="px-3 py-2 rounded-lg text-sm bg-slate-900 text-white disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900"
+          className="shrink-0 px-3 py-2 rounded-lg text-sm bg-slate-900 text-white disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900"
         >
           {loading ? '同期中...' : '同期する'}
         </button>
