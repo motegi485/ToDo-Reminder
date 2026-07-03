@@ -33,6 +33,9 @@ export interface Task {
   // タスク生成/更新時の端末タイムゾーンオフセット（UTC からの分。JST=+540）。
   // サーバーが繰り返しの reminder_time を次周期へ進める際にローカル境界を再現するために使う。
   tz_offset: number | null;
+  // チェックボックスのアクセント色。null は未指定（種類×期限で自動配色）。
+  // 値は taskColors.ts のパレット key（例 'blue-500'）。未知の値は自動配色にフォールバック。
+  color: string | null;
 }
 
 export interface User {

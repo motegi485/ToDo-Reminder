@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import { COLOR_SAFELIST } from './src/lib/taskColors';
 
 const config: Config = {
   darkMode: 'class',
@@ -14,11 +15,9 @@ const config: Config = {
     },
   },
   plugins: [],
-  safelist: [
-    'bg-violet-400', 'bg-sky-500', 'bg-teal-500', 'bg-rose-500',
-    'border-violet-400', 'border-sky-500', 'border-teal-500', 'border-rose-500',
-    'text-violet-400', 'text-sky-500', 'text-teal-500', 'text-rose-500',
-  ],
+  // チェックボックスのアクセント色はユーザーが動的に選ぶため、
+  // パレット定義から生成した全クラスを safelist に登録して purge を防ぐ。
+  safelist: [...COLOR_SAFELIST],
 };
 
 export default config;

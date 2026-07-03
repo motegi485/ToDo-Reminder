@@ -3,6 +3,7 @@ import { storage } from './storage';
 import { calcReminderTime } from './reminder';
 import { isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
+import { normalizeColor } from './taskColors';
 import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
 
 function generateId(): string {
@@ -23,6 +24,7 @@ export interface TaskInput {
   reminder_offset: number | null;
   recurrence_rule: RecurrenceRule | null;
   project_name: string | null;
+  color: string | null;
 }
 
 function syncCode(): string {
@@ -70,6 +72,8 @@ function buildTask(input: TaskInput, base?: Task): Task {
     updated_at: now,
     // 端末ローカルの UTC オフセット（分）。サーバー側の繰り返し前進計算で使う。
     tz_offset: -new Date().getTimezoneOffset(),
+    // 既知パレット key のみ保持。未知/未指定は null（=自動配色）に落とす。
+    color: normalizeColor(input.color),
   };
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { setQuantitativeValue } from '@/lib/taskRepo';
 import { haptic } from '@/hooks/useHaptic';
-import { accentFor } from './accentColor';
+import { accentForTask } from './accentColor';
 import type { Task } from '@/types';
 
 interface Props {
@@ -26,7 +26,7 @@ export function QuantitativeProgress({ task, leading }: Props) {
   const target = task.target_value ?? 1;
   const current = task.current_value ?? 0;
   const ratio = Math.min(1, target === 0 ? 0 : current / target);
-  const accent = accentFor(task.type, !!task.due_date);
+  const accent = accentForTask(task);
 
   const commit = async () => {
     const n = Number(draft);
