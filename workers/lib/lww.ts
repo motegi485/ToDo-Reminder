@@ -1,4 +1,6 @@
-export interface TaskRow {
+import { CHUNK_SIZE, chunk } from './chunk';
+
+interface TaskRow {
   id: string;
   sync_code: string;
   title: string;
@@ -23,12 +25,14 @@ export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
   recurrence_rule: unknown;
 }
 
-export interface LWWResult {
+interface LWWResult {
   accepted: number;
   conflicts: Array<{ id: string; server_updated_at: number }>;
+  // 他の同期コードが所有する既存行への書き込みを拒否した件数。
+  skipped: number;
 }
 
-export function payloadToRow(task: TaskPayload): TaskRow {
+function payloadToRow(task: TaskPayload): TaskRow {
   return {
     id: task.id,
     sync_code: task.sync_code,
@@ -100,42 +104,59 @@ export async function applyLWW(
   db: D1Database,
   tasks: TaskPayload[],
   syncCode: string,
+  // 同期コード切替時のみクライアントが旧コードを申告する。既存行の所有コードが
+  // これと一致する場合に限り、行を新コードへ「移動」する書き込みを許可する。
+  previousSyncCode: string | null,
 ): Promise<LWWResult> {
-  const result: LWWResult = { accepted: 0, conflicts: [] };
+  const result: LWWResult = { accepted: 0, conflicts: [], skipped: 0 };
 
   // sync_code 一致かつ最小要件を満たす行だけ対象にする。
   const valid = tasks.filter((t) => t.sync_code === syncCode && isValidPayload(t));
   if (valid.length === 0) return result;
 
-  const ids = valid.map((t) => t.id);
-  const placeholders = ids.map(() => '?').join(',');
-  const existing = await db
-    .prepare(`SELECT id, updated_at FROM tasks WHERE id IN (${placeholders})`)
-    .bind(...ids)
-    .all<{ id: string; updated_at: number }>();
-
-  const serverMap = new Map(existing.results.map((r) => [r.id, r.updated_at]));
-
-  // server_seq は pull カーソル専用の単調増加値。Date.now() だけだと同一ミリ秒の
-  // 別バッチで重複し、`server_seq > cursor` の pull が後発バッチを取りこぼしうる。
-  // sync_code 内の現在の最大値 +1 を下限にして、必ず前進させる。
-  const maxRow = await db
-    .prepare(`SELECT MAX(server_seq) AS m FROM tasks WHERE sync_code = ?`)
-    .bind(syncCode)
-    .first<{ m: number | null }>();
-  const serverSeq = Math.max(Date.now(), (maxRow?.m ?? 0) + 1);
+  // 既存行の updated_at と所有コードを取得（バインド上限のためチャンク分割）。
+  const serverMap = new Map<string, { updated_at: number; sync_code: string }>();
+  for (const ids of chunk(valid.map((t) => t.id), CHUNK_SIZE)) {
+    const placeholders = ids.map(() => '?').join(',');
+    const existing = await db
+      .prepare(`SELECT id, updated_at, sync_code FROM tasks WHERE id IN (${placeholders})`)
+      .bind(...ids)
+      .all<{ id: string; updated_at: number; sync_code: string }>();
+    for (const r of existing.results) {
+      serverMap.set(r.id, { updated_at: r.updated_at, sync_code: r.sync_code });
+    }
+  }
 
   const toUpsert: TaskRow[] = [];
   for (const task of valid) {
-    const serverUpdatedAt = serverMap.get(task.id);
-    if (serverUpdatedAt != null && task.updated_at < serverUpdatedAt) {
-      result.conflicts.push({ id: task.id, server_updated_at: serverUpdatedAt });
+    const server = serverMap.get(task.id);
+    // テナント分離: 既存行が別の同期コードの所有なら、previous_sync_code の申告が
+    // 一致する（= 正当なコード切替の移行）場合を除き書き込まない。id は UUID で
+    // 推測困難だが、id を知っているだけで他コードの行を乗っ取れる状態は塞ぐ。
+    if (
+      server != null &&
+      server.sync_code !== syncCode &&
+      server.sync_code !== previousSyncCode
+    ) {
+      result.skipped += 1;
+      continue;
+    }
+    if (server != null && task.updated_at < server.updated_at) {
+      result.conflicts.push({ id: task.id, server_updated_at: server.updated_at });
     } else {
       toUpsert.push(payloadToRow(task));
     }
   }
 
   if (toUpsert.length > 0) {
+    // server_seq は pull カーソル専用の単調増加値。事前に MAX を読んでから書くと、
+    // 並行 push が同じ MAX を読んで同一 seq を採番し、その seq まで pull 済みの端末が
+    // 後発バッチを恒久的に取りこぼす。INSERT 文内のスカラサブクエリで採番することで、
+    // D1 の書き込み直列化 + batch のトランザクション性により競合なく必ず前進する
+    // （同一 batch 内でも後続文のサブクエリは先行文の挿入結果を見る）。
+    // Date.now() を下限に敷くのは、過去にクリーンアップで最大 seq 行が消えても
+    // 既存端末の ms スケールのカーソルより後ろへ必ず並ぶようにするため。
+    const nowMs = Date.now();
     const stmts = toUpsert.map((row) =>
       db
         .prepare(
@@ -143,7 +164,8 @@ export async function applyLWW(
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
             project_name, sort_order, created_at, updated_at, tz_offset, color, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                   MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))`,
         )
         .bind(
           row.id,
@@ -163,10 +185,15 @@ export async function applyLWW(
           row.updated_at,
           row.tz_offset,
           row.color,
-          serverSeq,
+          syncCode,
+          nowMs,
         ),
     );
-    await db.batch(stmts);
+    // batch も文数上限を避けてチャンク実行。チャンク間はトランザクションが分かれるが
+    // upsert は冪等（クライアントは失敗時に全量を再送する）ため整合性は崩れない。
+    for (const stmtChunk of chunk(stmts, CHUNK_SIZE)) {
+      await db.batch(stmtChunk);
+    }
     result.accepted = toUpsert.length;
   }
 

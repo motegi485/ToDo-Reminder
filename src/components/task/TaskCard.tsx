@@ -4,6 +4,7 @@ import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
+import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
 import { prefersReducedMotion } from '@/lib/motion';
 import { formatDueLabel, formatReminderOffset } from '@/lib/format';
@@ -29,6 +30,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const quantInputRef = useRef<HTMLInputElement>(null);
   const commitTimer = useRef<number | null>(null);
+  const uncompleteInFlight = useRef(false);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -61,18 +63,30 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
       if (commitTimer.current !== null) {
         window.clearTimeout(commitTimer.current);
         commitTimer.current = null;
-        void completeTask(task.id);
+        completeTask(task.id).catch(() => showToast('保存に失敗しました', 'error'));
       }
     };
   }, [task.id]);
 
   const handleCheck = async () => {
     if (completed) {
-      // 未完了に戻す: 遅延なしで即コミット
+      // 未完了に戻す: 遅延なしで即コミットのため、コミット待ちがないぶん
+      // 二度タップで uncompleteTask が二重に走りやすい。ガードする。
+      if (uncompleteInFlight.current) return;
+      uncompleteInFlight.current = true;
       haptic('select');
-      await uncompleteTask(task.id);
+      try {
+        await uncompleteTask(task.id);
+      } catch {
+        showToast('保存に失敗しました', 'error');
+      } finally {
+        uncompleteInFlight.current = false;
+      }
       return;
     }
+    // コミット待ち（260ms）の間に再タップされると completeTask が二重に走り、
+    // 繰り返しタスクの完了ログが重複してレポートの件数が水増しされる。
+    if (pending || commitTimer.current !== null) return;
     if (task.type === 'quantitative') {
       // 定量タスクは従来どおりモーダルを開くだけ（アニメーション対象外）
       setCompletionDraft('');
@@ -86,7 +100,10 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
     if (!prefersReducedMotion()) setAnimateCheck(true);
     commitTimer.current = window.setTimeout(() => {
       commitTimer.current = null;
-      void completeTask(task.id);
+      completeTask(task.id).catch(() => {
+        setPending(false);
+        showToast('保存に失敗しました', 'error');
+      });
     }, COMMIT_DELAY_MS);
   };
 
@@ -96,8 +113,13 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const handleQuantCommit = async () => {
     if (!quantDeltaValid) return;
     const newVal = (task.current_value ?? 0) + Math.floor(quantDelta);
-    await setQuantitativeValue(task.id, newVal);
-    setShowQuantModal(false);
+    try {
+      await setQuantitativeValue(task.id, newVal);
+    } catch {
+      showToast('保存に失敗しました', 'error');
+    } finally {
+      setShowQuantModal(false);
+    }
   };
 
   const handleDelete = async () => {

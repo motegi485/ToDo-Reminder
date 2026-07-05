@@ -50,7 +50,7 @@ export function getTaskColor(key: string | null | undefined): TaskColor | undefi
   return COLOR_MAP.get(key);
 }
 
-export function isValidColorKey(key: unknown): key is string {
+function isValidColorKey(key: unknown): key is string {
   return typeof key === 'string' && COLOR_MAP.has(key);
 }
 

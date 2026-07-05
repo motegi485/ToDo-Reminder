@@ -25,15 +25,22 @@ export function ToastContainer() {
   const [items, setItems] = useState<ToastItem[]>([]);
 
   useEffect(() => {
+    // アンマウント後に setItems が呼ばれないよう、除去タイマーは全て回収する。
+    const timers = new Set<ReturnType<typeof setTimeout>>();
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<ToastItem>).detail;
       setItems((prev) => [...prev, detail]);
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
         setItems((prev) => prev.filter((i) => i.id !== detail.id));
       }, 3000);
+      timers.add(timer);
     };
     window.addEventListener(EVENT, handler);
-    return () => window.removeEventListener(EVENT, handler);
+    return () => {
+      window.removeEventListener(EVENT, handler);
+      for (const timer of timers) clearTimeout(timer);
+    };
   }, []);
 
   return (

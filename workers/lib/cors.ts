@@ -11,7 +11,7 @@ function getAllowOrigin(env: Env, origin: string | null): string {
   return origin === env.ALLOWED_ORIGIN ? origin : env.ALLOWED_ORIGIN;
 }
 
-export function corsHeaders(env: Env, origin: string | null): Record<string, string> {
+function corsHeaders(env: Env, origin: string | null): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': getAllowOrigin(env, origin),
     'Access-Control-Allow-Methods': 'POST, OPTIONS',

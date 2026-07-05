@@ -82,6 +82,26 @@
   }
 }
 
+/* 通知タップで開いたタスクの強調表示（ListPage のディープリンク処理が付与） */
+@keyframes task-focus-highlight {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px theme('colors.sky.400');
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.task-focus-highlight {
+  animation: task-focus-highlight 2s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-focus-highlight {
+    animation: none !important;
+    box-shadow: 0 0 0 2px theme('colors.sky.400');
+  }
+}
+
 /* タスク完了時のチェック確定演出 */
 @keyframes task-cb-pop {
   0% {

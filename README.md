@@ -45,18 +45,21 @@
 - **プロジェクト分類**：プロジェクト名でグルーピング。展開／折り畳み状態を端末ごとに保持。
 - **繰り返しタスク**：daily / weekly / monthly。完了してもタスクは消えず、カレンダー境界（毎日 0:00／毎週月曜 0:00／毎月 1 日 0:00）を跨ぐと自動で未完了へ「復活」する（定量タスクは現在値が 0 にリセット）。期限と繰り返しは排他。完了は `completions` ストアに履歴として残し、レポートへ反映（visibilitychange / 定期実行でも再評価）。
 - **表示順設定**：作成日時（新しい/古い順）、タスク数（少ない/多い順）、名前（五十音順）の 5 種。プロジェクトの表示順に反映される（プロジェクト内のタスクは常に新しい順で先頭に追加され、完了タスクは下部へ沈む固定順）。タスクの完了・削除で件数などが同点になった場合は、意図しない並び替えに見えないよう前回の表示順を維持する。「その他」（未分類）は設定に関わらず常に最下部。ネイティブ OS の `<select>` で選択。
+- **チェックボックス色**：タスクごとにアクセント色を選択できる（15 色 + 「自動」）。既定はスレート（灰色）。「自動」を選ぶと種類×期限で配色（`src/lib/taskColors.ts` / `migrations/0005_add_color.sql`。サーバーは色を解釈せず素通しで同期）。
 - **ソフト削除**：deleted 状態として保持し、365 日後にクリーンアップ Cron で物理削除。
 
 ### リマインダー / 通知
 - **オフライン通知**：Push 未購読の環境向けに、起動中のクライアントがリマインダー時刻を過ぎた（24 時間以内の）active タスクを検出し、Service Worker のローカル通知で表示（`src/lib/offlineNotify.ts`）。
-- **Push 通知**：Cloudflare Workers の Cron が毎分起動し、対象タスクの購読端末に Web Push を配信。繰り返しタスクの規則は「**リマインダー時刻の時点でその周期内に完了していなければ、アプリの開閉にかかわらず配信する**」。いつ完了したか・何周期未達成のまま跨いだかは問わず、周期境界で未完了へ復活した（はずの）タスクには毎周期届き、その周期内に完了済みなら送らない。送信後は `reminder_time` をサーバー側でも次周期へ前進させるため、アプリ未起動でも途切れない（`tz_offset` で端末ローカルの境界を再現）。復活（status の書き換え）自体はクライアントの責務のままで、サーバーは status を変更しない。
-- **通知タップでフォーカス**：通知をタップすると該当タスクが開いた状態でアプリが起動する。
+- **Push 通知**：Cloudflare Workers の Cron が毎分起動し、**同期コード配下の全端末**（`push_subscriptions` テーブルに端末単位で保持）へ Web Push を配信。繰り返しタスクの規則は「**リマインダー時刻の時点でその周期内に完了していなければ、アプリの開閉にかかわらず配信する**」。いつ完了したか・何周期未達成のまま跨いだかは問わず、周期境界で未完了へ復活した（はずの）タスクには毎周期届き、その周期内に完了済みなら送らない。送信後は `reminder_time` をサーバー側でも次周期へ前進させるため、アプリ未起動でも途切れない（`tz_offset` で端末ローカルの境界を再現）。復活（status の書き換え）自体はクライアントの責務のままで、サーバーは status を変更しない。
+- **配信の堅牢化**：送信の一時失敗（5xx/ネットワーク断）は購読を消さず、冪等ガードを取り下げて次分に再試行する（繰り返しは 10 分、単発は 24 時間の窓内）。Cron の分飛びで取りこぼした単発リマインダーも 24 時間以内なら回収して送る。恒久的に無効な購読（404/410）だけをその端末分に限って削除する。通知許可済みの端末はアプリ起動時に購読をサーバーへ登録し直すため、ブラウザの購読ローテーションや失効からも自己修復する。
+- **作成直後の誤通知防止**：繰り返しタスクの作成・編集時、現在周期のリマインド時刻が既に過去なら次周期へ繰り延べる（例: 週次+「1日前」を日曜午後に作成しても保存直後には鳴らない）。復活処理はリマインド時刻を過去方向へ巻き戻さないため、この繰り延べが後から取り消されることもない。
+- **通知タップでフォーカス**：通知をタップするとアプリが起動し、該当タスクのプロジェクトを展開して該当カードへスクロール・2 秒間ハイライトする（`/?task=<id>` ディープリンク）。
 
 ### 多端末同期
-- **同期コード**：12 桁の Crockford Base32 風コード（紛らわしい文字 I/O/0/1 を除外）。
+- **同期コード**：12 桁の Crockford Base32 風コード（紛らわしい文字 I/O/0/1 を除外。`crypto.getRandomValues` 由来の約 60 bit エントロピー）。
 - **Last-Write-Wins**：`updated_at` の新しい方を採用。古い方は `conflicts[]` でクライアントに返却。
-- **自動同期**：起動時／オンライン復帰時／5 分ごとに自動 pull→push。
-- **同期コード切替**：他端末のコードに切替時、現在のローカルタスクをサーバーへアップしてから取得しなおす（消失防止）。
+- **自動同期**：起動時／オンライン復帰時／5 分ごとに自動 push→pull。push は 50 件ずつのチャンクに分割して送るため、タスクが何百件あっても失敗しない（D1 のバインド変数上限対策。サーバー側も同じ粒度でクエリを分割）。各チャンクは一時的なネットワーク不調に備えて指数バックオフで最大 3 回リトライする。他コード所有として拒否された（`skipped`）件数が発生した場合はトーストで知らせる。
+- **同期コード切替**：他端末のコードに切替時、現在のローカルタスクをサーバーへアップしてから取得しなおす（消失防止）。切替 push には `previous_sync_code`（旧コード）を添え、サーバーは「旧コード所有の行の新コードへの移動」をこの申告がある場合だけ許可する（タスク ID を知っているだけの第三者による行の乗っ取りを遮断。拒否件数は `skipped` で返る）。Push 購読の付け替えも失敗時はリトライし、最終的に失敗した場合はユーザーに通知する（次回アプリ起動時の自己修復にも委ねる）。
 
 ### レポート
 - 週間達成率（リング）
@@ -66,6 +69,7 @@
 
 ### 表示・UX
 - ダークモード（手動切替）
+- 文字サイズ設定（小/中/大/特大。ルート font-size の切替で UI 全体が比例スケール。`useFontSize` / `todo_font_size`）
 - iOS / Android 用 PWA 案内モーダル（共通フラグ `todo_ios_pwa_dismissed` で 1 回 dismiss）
 - ハプティクス（対応端末のみ）
 - 楽観的 UI 更新（Dexie の `useLiveQuery` で即時反映）
@@ -129,17 +133,20 @@
 │   ├── 0001_initial.sql        users / tasks テーブル + index
 │   ├── 0002_add_server_seq.sql tasks.server_seq（pull カーソル用のサーバー採番列）
 │   ├── 0003_sent_reminders.sql Push 二重送信を防ぐ冪等ガード表
-│   └── 0004_add_tz_offset.sql  tasks.tz_offset（端末 TZ。サーバー側の繰り返し前進計算用）
+│   ├── 0004_add_tz_offset.sql  tasks.tz_offset（端末 TZ。サーバー側の繰り返し前進計算用）
+│   ├── 0005_add_color.sql      tasks.color（チェックボックスのアクセント色）
+│   └── 0006_push_subscriptions.sql 端末単位の Push 購読表 + reminder_time インデックス再構築
 │
 ├── workers/                    Cloudflare Workers ソース
 │   ├── index.ts                fetch + scheduled エントリ
 │   ├── api/
 │   │   ├── sync.ts             /api/sync/pull, /api/sync/push
-│   │   └── push.ts             /api/push/subscribe, /api/push/unsubscribe
+│   │   └── push.ts             /api/push/subscribe, /api/push/unsubscribe（endpoint=端末 単位）
 │   ├── cron/
 │   │   ├── notify.ts           毎分: Push 配信 + 繰り返し reminder_time の前進/取りこぼし回収
 │   │   └── cleanup.ts          日次 03:00 UTC: 物理削除
 │   └── lib/
+│       ├── chunk.ts            CHUNK_SIZE + chunk()（D1 バインド変数上限対策の共通ヘルパ）
 │       ├── cors.ts             CORS ヘルパ + jsonResponse
 │       ├── lww.ts              Last-Write-Wins マージ
 │       ├── recurrence.ts       tz_offset で繰り返し reminder_time を次周期へ前進
@@ -158,7 +165,7 @@
     ├── components/
     │   ├── layout/             Layout, Sidebar, BottomNav, OfflineBanner
     │   ├── task/               TaskCard, TaskFormDialog, QuantitativeProgress, RecurrenceField,
-    │   │                       ReminderField, SortMenu, EmptyState, accentColor.ts
+    │   │                       ReminderField, SortMenu, EmptyState, ColorPicker, accentColor.ts
     │   ├── project/            ProjectGroup, ProjectInput
     │   ├── report/             RingChart, StreakCard, MonthlyBarChart, QuantitativeList
     │   ├── settings/           SyncCodeCard, SyncFromOtherDevice, NotificationStatus,
@@ -166,7 +173,7 @@
     │   └── ui/                 Modal, BottomSheet, FormDialog, Toggle, FAB, Toast,
     │                           ConfirmDialog, SegmentedControl, MobilePwaGuide
     │
-    ├── hooks/                  useDarkMode, useSortOrder, useProjects,
+    ├── hooks/                  useDarkMode, useFontSize, useSortOrder, useProjects,
     │                           useHaptic, useFlipReorder, useIsDesktop
     │
     ├── lib/
@@ -180,6 +187,7 @@
     │   ├── reports.ts          集計ロジック（completions ベースのストリーク等）
     │   ├── validation.ts       入力バリデーション
     │   ├── sort.ts             ソート関数
+    │   ├── taskColors.ts       チェックボックス色パレット（tailwind.config の safelist 供給元）
     │   ├── format.ts           日付・進捗フォーマッタ
     │   ├── motion.ts           prefers-reduced-motion 判定
     │   ├── projectExpansion.ts プロジェクト展開状態の永続化
@@ -210,15 +218,15 @@
 
 `v3` で繰り返しを「次回タスクの生成」から「同じタスクの復活」方式へ移行し、旧 `custom` を `daily` に変換、旧方式で溜まった完了済み繰り返しタスクを `completions` へ転記して凍結します（`src/lib/db.ts`）。
 
-`Task` 型のうち、`next_generated` と `missed_due_date` はクライアント専用フィールドで、サーバー pull 時にデフォルト値で再構成されます（`src/lib/sync.ts`）。`tz_offset`（端末の UTC オフセット分。JST=+540）はサーバーにも同期され、Workers が繰り返し `reminder_time` を次周期へ進める際にローカル境界を再現するために使います。
+`tz_offset`（端末の UTC オフセット分。JST=+540）はサーバーにも同期され、Workers が繰り返し `reminder_time` を次周期へ進める際にローカル境界を再現するために使います。`color`（チェックボックス色。null=自動配色）はサーバーが解釈せず素通しで同期されます。
 
 ### サーバー（Cloudflare D1）
 
 `migrations/0001_initial.sql`：
 
-- `users(sync_code PK, push_subscription, updated_at)`
+- `users(sync_code PK, push_subscription, updated_at)`（`push_subscription` 列は 0006 以降 deprecated・未使用）
 - `tasks(id PK, sync_code FK, title, type, status, current_value, target_value, due_date, reminder_offset, reminder_time, recurrence_rule, project_name, sort_order, created_at, updated_at)`
-- インデックス：`reminder_time`（active のみ）／`(sync_code, status, updated_at)`／`(sync_code, project_name, status)`
+- インデックス：`reminder_time`（active のみ。0006 で置き換え）／`(sync_code, status, updated_at)`／`(sync_code, project_name, status)`
 
 `migrations/0002_add_server_seq.sql`：
 
@@ -234,6 +242,15 @@
 
 - `tasks.tz_offset`（端末の UTC オフセット分）を追加。Workers が繰り返しの境界（ローカルの 0:00）を厳密に計算して `reminder_time` を前進させるために使う。既存行は `NULL`（クライアントが次回 revive 時にバックフィルして同期）。
 
+`migrations/0005_add_color.sql`：
+
+- `tasks.color`（チェックボックスのアクセント色）を追加。NULL=自動配色。サーバーはパススルーのみで解釈しない。
+
+`migrations/0006_push_subscriptions.sql`：
+
+- `push_subscriptions(endpoint PK, sync_code, subscription, created_at, updated_at)` を追加。**端末（= Push endpoint）単位**の購読表で、同期コード配下の全端末に通知を配信できる。既存の `users.push_subscription` は自動移行され、以後 deprecated。同一 endpoint の再購読・同期コード切替は `ON CONFLICT(endpoint) DO UPDATE` で原子的に付け替わる。
+- `reminder_time` のインデックスを再構築。`reminder_time` は全書き込み元が `Date.toISOString()` 形式（辞書順=時刻順）のため、Cron は JS で生成した ISO 文字列の範囲比較でインデックスを使って検索する（従来の `datetime()` ラップは毎分フルスキャンになっていた）。取りこぼし回収用に `WHERE recurrence_rule IS NOT NULL` の partial index も追加。
+
 ### LocalStorage キー
 
 `src/lib/storage.ts` で型付きラッパ経由のみアクセス：
@@ -245,6 +262,7 @@
 | `todo_sort_order` | ソート順 |
 | `todo_project_default_expanded` | プロジェクト初期展開 |
 | `todo_project_states` | プロジェクトごとの展開状態 |
+| `todo_font_size` | 文字サイズ（`sm`/`md`/`lg`/`xl`） |
 | `todo_last_synced_at` | pull カーソル（サーバー採番の `server_seq` ウォーターマーク） |
 | `todo_last_pushed_at` | push カーソル（クライアント時計）。`updated_at` と同一時計で比較 |
 | `todo_notified_reminders` | 起動中ローカル通知の発火済み記録（`${taskId}@${reminder_time}` → 通知時刻）。再通知防止・7 日で間引き |
@@ -258,22 +276,24 @@
 - **push カーソル `lastPushedAt`**：クライアント時計。ローカルの `updated_at` と同一時計で比較する。
 
 1. `runSync()` は `push → pull` の順に実行（`App.tsx` から起動時／online イベント／5 分間隔、加えてタスク変更時に `scheduleSync()` で約 1.5 秒デバウンス発火）。pull で取り込んだ行をそのまま push し返さないよう push を先に行う。
-2. **push**：`updated_at > lastPushedAt` のタスクを送信し、成功後に `lastPushedAt` を前進。
-3. **pull**：`/api/sync/pull` に `last_synced_at`(=`server_seq` 高水位) を渡し `server_seq > ?` で差分取得。ローカルに同 ID があれば `updated_at` の新しい方を採用。カーソルは「実際に返した行の `server_seq` 最大値」だけ前進。
-4. **コンフリクト**：サーバー側で `updated_at` 比較。負けた変更は `conflicts[]` に積まれ、次回 pull で上書きされる。
+2. **push**：`updated_at > lastPushedAt` のタスクを `updated_at` 昇順・50 件ずつのチャンクで送信し、**全チャンク成功後に** `lastPushedAt` を前進（途中失敗時は次回全量再送。upsert は冪等）。サーバー側も既存行検索・batch を 50 件単位に分割し、D1 のバインド変数上限（約 100）を超えない。
+3. **pull**：`/api/sync/pull` に `last_synced_at`(=`server_seq` 高水位) を渡し `server_seq > ?` で差分取得。ローカルに同 ID があれば `updated_at` の新しい方を採用。カーソルは「実際に返した行の `server_seq` 最大値」だけ前進。pull はサーバーに一切書き込まない（users 行の作成は push / 購読登録時のみ。形式の合う探査リクエストで行が増え続けるのを防ぐ）。
+4. **コンフリクト**：サーバー側で `updated_at` 比較。負けた変更は `conflicts[]` に積まれ、次回 pull で上書きされる。他コード所有の既存行への書き込みは `previous_sync_code` の申告がない限り拒否され、`skipped` として返る。
+5. **server_seq 採番**：INSERT 文内のスカラサブクエリ `MAX(該当コードの最大 server_seq + 1, 現在時刻)` で行う。事前読みがないため並行 push どうしでも seq が重複せず、pull の取りこぼしが起きない（D1 は書き込みを直列化し、`db.batch` はトランザクション）。
 
 ### 同期コード切替（端末追加）
 
 `switchSyncCode()` の流れ：
-1. ローカルタスクの `sync_code` を新コードに付け替えて新コード宛に push（消失防止）。
+1. ローカルタスクの `sync_code` を新コードに付け替え、`previous_sync_code`（旧コード）を添えて新コード宛にチャンク push（消失防止 + サーバー側の移動許可）。
 2. LocalStorage を新コードに更新し `lastSyncedAt = 0` でリセット。
-3. ローカル `tasks` を全クリア。
-4. 新コードで full pull し、`deleted` 以外を bulkPut。`lastSyncedAt` に pull カーソルを保存、`lastPushedAt = Date.now()`（取り込んだ行は既にサーバー上にあるため、以後は切替後の編集だけを push）。
+3. Push 購読をこの端末ごと新コードへ付け替え（再購読の upsert が同一 endpoint 行を原子的に書き換えるため、旧コード側の解除は不要）。
+4. ローカル `tasks` を全クリア。
+5. 新コードで full pull し、`deleted` 以外を bulkPut。`lastSyncedAt` に pull カーソルを保存、`lastPushedAt = Date.now()`（取り込んだ行は既にサーバー上にあるため、以後は切替後の編集だけを push）。
 
 ### クリーンアップ
 
-- **クライアント**：「データ管理」の「1 年経過の完了済みタスクを削除」で、`updated_at` が 365 日（`CLEANUP_RETENTION_DAYS`）以前の `completed` / `deleted` タスクをローカルから物理削除（`src/components/settings/DataManagement.tsx` 内で `db.tasks.bulkDelete`）。
-- **サーバー**：日次 Cron `0 3 * * *`（UTC）で `updated_at` が 365 日以前の `deleted` タスクと繰り返しでない `completed` タスクを物理削除。繰り返しタスクの completed は「その周期だけ完了」の意味で、削除すると以後の周期のリマインダーが止まるため保持する。あわせて 30 日以前の `sent_reminders`（冪等ガード記録）も間引く。
+- **クライアント**：「データ管理」の「1 年経過の完了済みタスクを削除」で、`updated_at` が 365 日（`CLEANUP_RETENTION_DAYS`）以前の `completed` / `deleted` タスクと、保持期間を過ぎた・タスクが既に存在しない `completions`（完了履歴）をローカルから物理削除（`src/components/settings/DataManagement.tsx`）。
+- **サーバー**：日次 Cron `0 3 * * *`（UTC）で `updated_at` が 365 日以前の `deleted` タスクと繰り返しでない `completed` タスクを物理削除。繰り返しタスクの completed は「その周期だけ完了」の意味で、削除すると以後の周期のリマインダーが止まるため保持する。あわせて 30 日以前の `sent_reminders`（冪等ガード記録）と、タスクも購読も持たないまま 30 日経った `users` 行も間引く。
 
 ---
 
@@ -372,7 +392,13 @@ npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0001_initi
 npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0002_add_server_seq.sql
 npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0003_sent_reminders.sql
 npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0004_add_tz_offset.sql
+npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0005_add_color.sql
+npx wrangler d1 execute todo-reminder-db --remote --file=./migrations/0006_push_subscriptions.sql
 ```
+
+> **重要**: マイグレーションは必ず全ファイルを番号順に適用すること。適用漏れがあると
+> 初回同期が `no such column` で失敗する。既存環境の更新では **0006 を Workers の
+> デプロイより先に適用する**（新しい Worker は起動直後から `push_subscriptions` を読む）。
 
 ### 4. Workers デプロイ
 ```sh
@@ -411,8 +437,8 @@ GitHub 連携で CI/CD したい場合は、Cloudflare ダッシュボード →
 | SPA ナビゲーション | `NavigationRoute` + `createHandlerBoundToURL('index.html')` で `/report` `/settings` 等へ直接アクセスしてもキャッシュ済み `index.html` を返す |
 | `install` | `skipWaiting()` |
 | `activate` | `clients.claim()` |
-| `push` | `event.data.json()` を読み、`showNotification(title, { body, icon, badge, tag, data })` |
-| `notificationclick` | 既存 window があれば focus + `navigate('/?task=' + id)`、なければ `openWindow` |
+| `push` | `event.data.json()` を読み、`showNotification(title, { body, icon, badge, tag, data })`。`tag` は `task_id`（同一タスクの通知は最新 1 件に集約） |
+| `notificationclick` | 既存 window があれば focus + `navigate('/?task=' + id)`、なければ `openWindow`。`?task=` は `ListPage` が消費し、該当タスクへスクロール + 2 秒ハイライトする |
 
 ### オフラインフォールバック通知
 Push を購読していない環境向けに、起動中のクライアントがリマインダー時刻を過ぎた（24時間以内の）active タスクを検出して `registration.showNotification()` で表示します（`src/lib/offlineNotify.ts`）。`App.tsx` 起動時 + `visibilitychange` + 定期実行で発火。
@@ -468,9 +494,20 @@ npx wrangler d1 export todo-reminder-db --remote --output=./backup-$(date +%Y%m%
 - VAPID 鍵は **絶対に** git にコミットしない（`.env` は `.gitignore` 済み）。
 - ローテートする場合は新鍵で `wrangler secret put` → フロントの `VITE_VAPID_PUBLIC_KEY` 更新 → 再デプロイ → 既存購読は失効するため再購読を促す。
 
+### 既知の制約・将来の検討事項
+
+| 項目 | 現状と方針 |
+|---|---|
+| レート制限 | API 側にはなし（同期コード ≈60bit が実質の認証）。必要になったら Cloudflare ダッシュボードの WAF レートリミットルールで対応する |
+| Cron の大規模化 | 毎分の配信は `Promise.allSettled` の一括 fan-out。対象リマインダーが 1 分あたり数百件を超える規模になったら Queues 等への分割を検討 |
+| タイムゾーン | 繰り返し境界は `tz_offset`（作成/復活時に固定した UTC オフセット）で再現する。DST のある地域では切替直後〜次回アプリ起動まで最大 1 時間ずれうる（日本では影響なし） |
+| アクセシビリティ | ダイアログのフォーカストラップ、ラジオ群の矢印キー操作は未実装 |
+| レポート集計 | 週間達成率の分母は「今週更新されたタスク数」、月次バーの非繰り返しタスクは `updated_at` 基準（完了後に編集すると日付が動く）という簡易集計 |
+| 持続的な配信失敗 | 一時失敗（`'failed'`）は繰り返し 10 分・単発 24 時間、毎分自動再試行する。VAPID 設定不備など送信経路自体が壊れている場合、この再試行窓が切れるたびに次の周期でまた再試行が始まり、原因が直るまで実質無期限に繰り返される。サーキットブレーカーや運用者向けアラートは持たないため、`wrangler tail` や Push 配信失敗率の月次確認で検知する運用に留める |
+
 ### アップデート手順
 1. ローカルで変更 → `npm run typecheck && npm run build`
-2. D1 マイグレーション追加が必要なら `migrations/0002_*.sql` を作成し `--remote` 適用
+2. D1 マイグレーション追加が必要なら次番号の `migrations/0007_*.sql` を作成し `--remote` 適用
 3. Workers 変更があれば `npx wrangler deploy`
 4. フロント変更があれば `npx wrangler pages deploy dist --project-name=todo-reminder`
 5. SW は `registerType: 'autoUpdate'` により次回読み込み時に自動更新

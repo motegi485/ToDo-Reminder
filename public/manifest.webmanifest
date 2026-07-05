@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "ToDo リマインダー",
   "short_name": "ToDo リマインダー",
   "description": "オフライン対応のシンプルな ToDo リマインダー",
