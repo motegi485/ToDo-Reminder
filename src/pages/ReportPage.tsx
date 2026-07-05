@@ -1,48 +1,42 @@
-import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '@/lib/db';
 import {
   getActiveQuantitative,
   getMonthlyCompletions,
   getStreak,
   getWeeklyCompletionRate,
-  type DayCount,
-  type WeeklyCompletionRate,
 } from '@/lib/reports';
 import { RingChart } from '@/components/report/RingChart';
 import { StreakCard } from '@/components/report/StreakCard';
 import { MonthlyBarChart } from '@/components/report/MonthlyBarChart';
 import { QuantitativeList } from '@/components/report/QuantitativeList';
-import type { Task } from '@/types';
 
 export default function ReportPage() {
-  const trigger = useLiveQuery(() => db.tasks.count(), []);
-  const [weekly, setWeekly] = useState<WeeklyCompletionRate>({ rate: 0, completed: 0, total: 0 });
-  const [streak, setStreak] = useState<number>(0);
-  const [monthly, setMonthly] = useState<DayCount[]>([]);
-  const [quantTasks, setQuantTasks] = useState<Task[]>([]);
+  // 集計を useLiveQuery で直接購読する。完了・未完了の切替やソフト削除は行数を
+  // 変えないため db.tasks.count() では検知できず、完了履歴（completions）の追加は
+  // tasks テーブルに触れもしない。集計関数内の Dexie 読み取りを liveQuery が
+  // 追跡するので、関連テーブルのどの変化でも自動で再計算される。
+  const data = useLiveQuery(async () => {
+    const [weekly, streak, monthly, quantTasks] = await Promise.all([
+      getWeeklyCompletionRate(),
+      getStreak(),
+      getMonthlyCompletions(30),
+      getActiveQuantitative(),
+    ]);
+    return { weekly, streak, monthly, quantTasks };
+  }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const [w, s, m, q] = await Promise.all([
-        getWeeklyCompletionRate(),
-        getStreak(),
-        getMonthlyCompletions(30),
-        getActiveQuantitative(),
-      ]);
-      if (cancelled) return;
-      setWeekly(w);
-      setStreak(s);
-      setMonthly(m);
-      setQuantTasks(q);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [trigger]);
+  // 読込中は見出しだけ表示する（「データを蓄積中です」の一瞬の誤表示を防ぐ）。
+  if (data === undefined) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold">レポート</h1>
+      </div>
+    );
+  }
 
-  const empty = weekly.total === 0 && streak === 0 && monthly.every((d) => d.count === 0) && quantTasks.length === 0;
+  const { weekly, streak, monthly, quantTasks } = data;
+  const empty =
+    weekly.total === 0 && streak === 0 && monthly.every((d) => d.count === 0) && quantTasks.length === 0;
 
   return (
     <div className="space-y-4">

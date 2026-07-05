@@ -14,7 +14,7 @@ export function DisplaySettings() {
   const { dark, toggle } = useDarkMode();
   const fontSize = useFontSize();
   const sort = useSortOrder();
-  const groups = useProjectGroups();
+  const groups = useProjectGroups() ?? [];
   const [defaultExpanded, setDefaultExpanded] = useState<boolean>(() =>
     storage.getProjectDefaultExpanded(),
   );

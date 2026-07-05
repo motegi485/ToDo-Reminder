@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { setQuantitativeValue } from '@/lib/taskRepo';
+import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
 import { accentForTask } from './accentColor';
 import type { Task } from '@/types';
@@ -29,13 +30,18 @@ export function QuantitativeProgress({ task, leading }: Props) {
   const accent = accentForTask(task);
 
   const commit = async () => {
-    const n = Number(draft);
-    if (Number.isFinite(n)) {
-      const before = task.current_value ?? 0;
-      await setQuantitativeValue(task.id, Math.max(0, Math.floor(n)));
-      if (Math.floor(n) !== before) haptic('select');
+    try {
+      const n = Number(draft);
+      if (Number.isFinite(n)) {
+        const before = task.current_value ?? 0;
+        await setQuantitativeValue(task.id, Math.max(0, Math.floor(n)));
+        if (Math.floor(n) !== before) haptic('select');
+      }
+    } catch {
+      showToast('保存に失敗しました', 'error');
+    } finally {
+      setEditing(false);
     }
-    setEditing(false);
   };
 
   return (

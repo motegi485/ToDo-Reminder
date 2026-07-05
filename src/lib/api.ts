@@ -22,27 +22,33 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   }
 }
 
-export interface PullResponse {
+interface PullResponse {
   tasks: Task[];
   /** サーバー採番の同期カーソル（server_seq ウォーターマーク）。次回 pull の last_synced_at に使う。 */
   cursor: number;
 }
 
-export interface PushResponse {
+interface PushResponse {
   accepted: number;
   conflicts: Array<{ id: string; server_updated_at: number }>;
+  /** 他の同期コードが所有する既存行への書き込みとして拒否された件数。 */
+  skipped: number;
 }
 
 export const api = {
   syncPull: (sync_code: string, last_synced_at: number) =>
     apiFetch<PullResponse>('/api/sync/pull', { sync_code, last_synced_at }),
 
-  syncPush: (sync_code: string, tasks: Task[]) =>
-    apiFetch<PushResponse>('/api/sync/push', { sync_code, tasks }),
+  // previous_sync_code は同期コード切替時のみ付ける。サーバーは既存行の所有コードが
+  // これと一致する場合に限り、行の新コードへの「移動」を許可する（乗っ取り防止）。
+  syncPush: (sync_code: string, tasks: Task[], previous_sync_code?: string) =>
+    apiFetch<PushResponse>(
+      '/api/sync/push',
+      previous_sync_code
+        ? { sync_code, tasks, previous_sync_code }
+        : { sync_code, tasks },
+    ),
 
   pushSubscribe: (sync_code: string, subscription: PushSubscriptionJSON) =>
     apiFetch<{ ok: boolean }>('/api/push/subscribe', { sync_code, subscription }),
-
-  pushUnsubscribe: (sync_code: string) =>
-    apiFetch<{ ok: boolean }>('/api/push/unsubscribe', { sync_code }),
 };

@@ -1,7 +1,7 @@
 import { db } from './db';
 import { storage } from './storage';
 import { calcReminderTime } from './reminder';
-import { isPeriodElapsed, recurrenceReminderTime } from './recurrence';
+import { futureRecurrenceReminderTime, isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
 import { normalizeColor } from './taskColors';
 import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
@@ -47,7 +47,8 @@ function buildTask(input: TaskInput, base?: Task): Task {
   let reminderTime: string | null = null;
   if (reminderOffset !== null) {
     if (due) reminderTime = calcReminderTime(due, reminderOffset);
-    else if (recurrence) reminderTime = recurrenceReminderTime(now, recurrence.type, reminderOffset);
+    // 現在期間の時刻が既に過去なら次周期へ繰り延べる（保存直後の通知を防ぐ）。
+    else if (recurrence) reminderTime = futureRecurrenceReminderTime(now, recurrence.type, reminderOffset);
   }
 
   const isQuantitative = input.type === 'quantitative';
@@ -214,8 +215,14 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
           next.tz_offset = tz;
           changed = true;
         }
+        // 過去方向へは巻き戻さない: 作成・編集時に次周期へ繰り延べた値や、サーバーが
+        // 送信後に前進させた値を現在期間の値へ戻すと、「保存直後の意図しない通知」が
+        // 復活してしまう。前進方向（または値が無い/壊れている場合）だけ更新する。
+        // 未通知のまま持ち越した過去のリマインダーは stored ≦ desired になるので、
+        // 24 時間以内のキャッチアップ通知（offlineNotify）は従来どおり機能する。
         const desired = recurrenceReminderTime(now, rule.type, next.reminder_offset);
-        if (desired !== next.reminder_time) {
+        const storedMs = next.reminder_time ? Date.parse(next.reminder_time) : NaN;
+        if (desired !== next.reminder_time && !(Date.parse(desired) <= storedMs)) {
           next.reminder_time = desired;
           changed = true;
         }

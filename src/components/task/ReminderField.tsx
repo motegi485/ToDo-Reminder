@@ -67,9 +67,10 @@ export function ReminderField({
                 onChange={(e) => {
                   const v = e.target.value.replace(/[^0-9]/g, '');
                   setLocalValue(v);
-                  if (v !== '') {
-                    onOffsetChange(Number(v));
-                  }
+                  // 空にしたとき旧値を残すと、見た目は空欄なのに前の分数で保存されて
+                  // しまう。null（=リマインダー無効）でも旧値でもなく NaN を渡し、
+                  // カスタム入力 UI を保ったままバリデーションで送信を止める。
+                  onOffsetChange(v !== '' ? Number(v) : Number.NaN);
                 }}
                 className="w-24 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-right"
               />

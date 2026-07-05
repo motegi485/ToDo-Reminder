@@ -41,7 +41,9 @@ self.addEventListener('push', (event) => {
       body: data.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      tag: data.task_id,
+      // 同じタスクの通知は最新 1 件に集約する。task_id が無い異常ペイロードは
+      // 一意なタグを振り、互いに置き換え合わないようにする。
+      tag: data.task_id ?? `reminder-${Date.now()}`,
       data: { task_id: data.task_id },
     }),
   );
