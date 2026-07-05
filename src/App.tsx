@@ -4,6 +4,7 @@ import { Layout } from '@/components/layout/Layout';
 import { ToastContainer } from '@/components/ui/Toast';
 import { MobilePwaGuide } from '@/components/ui/MobilePwaGuide';
 import { fireDueLocalNotifications } from '@/lib/offlineNotify';
+import { subscribePush } from '@/lib/notifyClient';
 import { reviveRecurringTasks } from '@/lib/taskRepo';
 import { runSync } from '@/lib/sync';
 import { CONSTANTS } from '@/lib/constants';
@@ -31,6 +32,15 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVis);
       clearInterval(intervalId);
     };
+  }, []);
+
+  // 起動時に Push 購読をサーバーへ登録し直す（自己修復）。ブラウザが購読を
+  // ローテーションした場合や、サーバー側の購読行が失効判定で消えた場合でも、
+  // 次回起動で通知が復旧する。許可済みの端末でのみ動き、新たな許可ダイアログは出ない。
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      subscribePush({ silent: true }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {

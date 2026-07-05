@@ -20,6 +20,16 @@ export function Modal({ open, onClose, children, ariaLabel, footer }: Props) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // 開いている間は背面のスクロールを止める（BottomSheet と同じ挙動に揃える）
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   if (!open) return null;
 
   return createPortal(

@@ -27,7 +27,9 @@ export async function handleSyncPull(request: Request, env: Env): Promise<Respon
     return jsonResponse({ error: 'invalid last_synced_at' }, env, request, 400);
   }
 
-  await upsertUser(env.DB, syncCode);
+  // pull はタスクを書き込まないため users 行は不要（FK は push 側で満たす）。
+  // ここで upsert すると、形式が合っているだけの探査リクエストのたびに
+  // 誰にも属さない users 行が永久に増え続ける。
 
   const result = await env.DB.prepare(
     `SELECT * FROM tasks WHERE sync_code = ? AND server_seq > ?`,
@@ -50,9 +52,14 @@ export async function handleSyncPull(request: Request, env: Env): Promise<Respon
 }
 
 export async function handleSyncPush(request: Request, env: Env): Promise<Response> {
-  const body = await request.json<{ sync_code?: unknown; tasks?: unknown }>();
+  const body = await request.json<{
+    sync_code?: unknown;
+    tasks?: unknown;
+    previous_sync_code?: unknown;
+  }>();
   const syncCode = body.sync_code;
   const tasks = body.tasks;
+  const previousSyncCode = body.previous_sync_code;
 
   if (typeof syncCode !== 'string' || !SYNC_CODE_RE.test(syncCode)) {
     return jsonResponse({ error: 'invalid sync_code' }, env, request, 400);
@@ -60,9 +67,21 @@ export async function handleSyncPush(request: Request, env: Env): Promise<Respon
   if (!Array.isArray(tasks)) {
     return jsonResponse({ error: 'tasks must be an array' }, env, request, 400);
   }
+  // previous_sync_code は同期コード切替時のみ付く任意項目。
+  if (
+    previousSyncCode != null &&
+    (typeof previousSyncCode !== 'string' || !SYNC_CODE_RE.test(previousSyncCode))
+  ) {
+    return jsonResponse({ error: 'invalid previous_sync_code' }, env, request, 400);
+  }
 
   await upsertUser(env.DB, syncCode);
 
-  const lwwResult = await applyLWW(env.DB, tasks as TaskPayload[], syncCode);
+  const lwwResult = await applyLWW(
+    env.DB,
+    tasks as TaskPayload[],
+    syncCode,
+    (previousSyncCode as string | undefined) ?? null,
+  );
   return jsonResponse(lwwResult, env, request);
 }

@@ -10,17 +10,40 @@ export function DataManagement() {
   const handleCleanup = async () => {
     setConfirm(false);
     const cutoff = Date.now() - CONSTANTS.CLEANUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-    const targets = await db.tasks
-      .where('status')
-      .anyOf(['completed', 'deleted'])
-      .filter((t) => t.updated_at < cutoff)
-      .toArray();
-    if (targets.length === 0) {
+    let removedTasks = 0;
+    let removedLogs = 0;
+    await db.transaction('rw', db.tasks, db.completions, async () => {
+      const targets = await db.tasks
+        .where('status')
+        .anyOf(['completed', 'deleted'])
+        .filter((t) => t.updated_at < cutoff)
+        .toArray();
+      if (targets.length > 0) {
+        await db.tasks.bulkDelete(targets.map((t) => t.id));
+        removedTasks = targets.length;
+      }
+
+      // 完了履歴（completions）も同じ保持期間で間引く。加えて、既に存在しない
+      // タスクの履歴（孤児ログ）も削除する。放置すると無限に増え、レポートの
+      // ストリーク集計が全件走査で遅くなっていく。
+      const remainingIds = new Set((await db.tasks.toArray()).map((t) => t.id));
+      const staleLogs = await db.completions
+        .filter((c) => c.completed_at < cutoff || !remainingIds.has(c.task_id))
+        .toArray();
+      if (staleLogs.length > 0) {
+        await db.completions.bulkDelete(staleLogs.map((c) => c.id));
+        removedLogs = staleLogs.length;
+      }
+    });
+
+    if (removedTasks === 0 && removedLogs === 0) {
       showToast('削除対象がありません', 'info');
       return;
     }
-    await db.tasks.bulkDelete(targets.map((t) => t.id));
-    showToast(`${targets.length} 件削除しました`, 'success');
+    const parts = [];
+    if (removedTasks > 0) parts.push(`タスク ${removedTasks} 件`);
+    if (removedLogs > 0) parts.push(`完了履歴 ${removedLogs} 件`);
+    showToast(`${parts.join('・')}を削除しました`, 'success');
   };
 
   return (
@@ -36,7 +59,7 @@ export function DataManagement() {
       <ConfirmDialog
         open={confirm}
         title="完了済みタスクをクリーンアップしますか？"
-        description="1 年以上前に完了/削除したタスクをローカルから物理削除します。"
+        description="1 年以上前に完了/削除したタスクと、古い完了履歴をローカルから物理削除します。"
         confirmLabel="削除"
         destructive
         onCancel={() => setConfirm(false)}

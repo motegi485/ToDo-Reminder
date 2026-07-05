@@ -17,4 +17,14 @@ export async function handleCleanupCron(env: Env): Promise<void> {
     `DELETE FROM sent_reminders
      WHERE sent_at < (strftime('%s', 'now') - 2592000) * 1000`,
   ).run();
+
+  // タスクも Push 購読も持たないまま 30 日経った users 行を削除する。
+  // 同期 push は必要になれば users 行を再作成するので、消しても安全。
+  // （かつて pull が探査リクエストのたびに行を作っていた名残の掃除も兼ねる。）
+  await env.DB.prepare(
+    `DELETE FROM users
+     WHERE updated_at < (strftime('%s', 'now') - 2592000) * 1000
+       AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.sync_code = users.sync_code)
+       AND NOT EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.sync_code = users.sync_code)`,
+  ).run();
 }
