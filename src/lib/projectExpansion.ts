@@ -22,6 +22,21 @@ export function toggleExpanded(name: string | null): boolean {
   return next;
 }
 
+/**
+ * プロジェクト名変更時、展開状態を旧名キーから新名キーへ引き継ぐ。
+ * 新名側に既存の状態があれば（＝統合先が既存プロジェクト）そちらを優先して残す
+ * （統合後に画面上残るのは統合先グループであり、その展開状態を尊重するため）。
+ */
+export function migrateProjectState(oldName: string, newName: string): void {
+  const states = storage.getProjectStates();
+  const oldKey = projectKey(oldName);
+  if (!(oldKey in states)) return;
+  const newKey = projectKey(newName);
+  if (!(newKey in states)) states[newKey] = states[oldKey]!;
+  delete states[oldKey];
+  storage.setProjectStates(states);
+}
+
 export function applyDefaultExpansion(newDefault: boolean, activeProjectNames: Array<string | null>): void {
   // 現存するプロジェクトのキーだけで作り直す。既存キーを引き継ぐと、削除済み
   // プロジェクトの状態が localStorage に永久に残り続ける。

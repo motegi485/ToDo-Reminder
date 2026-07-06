@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Inbox } from 'lucide-react';
+import { ChevronDown, Inbox, MoreVertical } from 'lucide-react';
 import { TaskCard } from '@/components/task/TaskCard';
+import { RenameProjectDialog } from './RenameProjectDialog';
 import { sortTasksInGroup } from '@/lib/sort';
 import { useFlipReorder } from '@/hooks/useFlipReorder';
 import { isExpanded, toggleExpanded } from '@/lib/projectExpansion';
@@ -17,13 +18,26 @@ const SYNC_EVENT = 'todo:project-states-changed';
 
 export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
   const [open, setOpen] = useState<boolean>(() => isExpanded(name));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = () => setOpen(isExpanded(name));
     window.addEventListener(SYNC_EVENT, handler);
     return () => window.removeEventListener(SYNC_EVENT, handler);
   }, [name]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!menuRef.current) return;
+      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [menuOpen]);
 
   const handleToggle = () => setOpen(toggleExpanded(name));
 
@@ -47,32 +61,64 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
           : ''
       }`}
     >
-      <button
-        type="button"
-        onClick={handleToggle}
-        className="flex w-full items-center gap-2 px-0.5 pb-3 text-left"
-      >
-        <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
-          {isUncategorized && (
-            <Inbox size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
-          )}
-          <span
-            className={
-              isUncategorized ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'
-            }
-          >
-            {name ?? 'その他'}
+      <div className="flex items-center gap-1.5 px-0.5 pb-3">
+        <button
+          type="button"
+          onClick={handleToggle}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
+            {isUncategorized && (
+              <Inbox size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
+            )}
+            <span
+              className={
+                isUncategorized ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'
+              }
+            >
+              {name ?? 'その他'}
+            </span>
+          </h2>
+          <ChevronDown
+            size={19}
+            className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          />
+          <span className="flex-1" />
+          <span className="text-sm text-slate-400 dark:text-slate-500">
+            {completedTasks.length}/{tasks.length}
           </span>
-        </h2>
-        <ChevronDown
-          size={19}
-          className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-        />
-        <span className="flex-1" />
-        <span className="text-sm text-slate-400 dark:text-slate-500">
-          {completedTasks.length}/{tasks.length}
-        </span>
-      </button>
+        </button>
+
+        {name !== null && (
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              aria-label="プロジェクトメニュー"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((v) => !v);
+              }}
+              className="p-1 -m-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+            >
+              <MoreVertical size={18} />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]">
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setRenameOpen(true);
+                  }}
+                >
+                  名前を変更
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {open && (
         <div ref={listRef} className="space-y-2.5">
@@ -80,6 +126,10 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
             <TaskCard key={t.id} task={t} onEdit={onEdit} />
           ))}
         </div>
+      )}
+
+      {renameOpen && name !== null && (
+        <RenameProjectDialog open={renameOpen} currentName={name} onClose={() => setRenameOpen(false)} />
       )}
     </section>
   );

@@ -4,6 +4,8 @@ import { calcReminderTime } from './reminder';
 import { futureRecurrenceReminderTime, isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
 import { normalizeColor } from './taskColors';
+import { projectNameError } from './validation';
+import { migrateProjectState } from './projectExpansion';
 import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
 
 function generateId(): string {
@@ -109,6 +111,58 @@ export async function deleteTask(id: string): Promise<void> {
   if (!existing) return;
   await db.tasks.put({ ...existing, status: 'deleted', updated_at: Date.now() });
   scheduleSync();
+}
+
+export interface RenameProjectResult {
+  /** 実際にリネームされたタスク件数（0 件なら旧名のタスクが既に存在しなかった＝並行操作等）。 */
+  renamed: number;
+  /** 変更先の名前が既存の別プロジェクトと同名で、統合になったかどうか。 */
+  merged: boolean;
+}
+
+/**
+ * プロジェクト名を一括変更する。「プロジェクト」は独立エンティティを持たず
+ * project_name 文字列の一致でグルーピングされているだけなので、対象は
+ * 該当 project_name を持つ全タスク（status は問わず active/completed/deleted 全て）。
+ * updated_at を進めた通常のタスク更新として bulkPut するだけで、既存の
+ * push/pull（LWW）パイプラインにそのまま乗って多端末へ伝播する
+ * （サーバー側の変更は不要）。
+ */
+export async function renameProject(oldName: string, newNameRaw: string): Promise<RenameProjectResult> {
+  const newName = normalizeProjectName(newNameRaw);
+  if (newName === null) throw new Error('プロジェクト名を入力してください');
+  const err = projectNameError(newName);
+  if (err) throw new Error(err);
+  if (newName === oldName) return { renamed: 0, merged: false };
+
+  let renamed = 0;
+  let merged = false;
+  await db.transaction('rw', db.tasks, async () => {
+    const targets = await db.tasks.where('project_name').equals(oldName).toArray();
+    if (targets.length === 0) return;
+    // 統合先が既に画面上に存在する（未削除の）プロジェクトかどうか。トースト文言の分岐にのみ使う。
+    merged =
+      (await db.tasks
+        .where('project_name')
+        .equals(newName)
+        .filter((t) => t.status !== 'deleted')
+        .count()) > 0;
+    // completed タスクの達成順（sortTasksInGroup が updated_at 昇順で並べる）を保つため、
+    // 一律で同一時刻にせず updated_at 昇順 + 1ms ずつ加算する。
+    targets.sort((a, b) => a.updated_at - b.updated_at);
+    const base = Date.now();
+    const updated = targets.map((t, i) => ({ ...t, project_name: newName, updated_at: base + i }));
+    await db.tasks.bulkPut(updated);
+    renamed = updated.length;
+  });
+
+  if (renamed > 0) {
+    // ProjectGroup は name を React key に使っているため、リネームで別コンポーネントとして
+    // 再マウントされる。その再マウント（isExpanded の再評価）より前に展開状態を移行しておく。
+    migrateProjectState(oldName, newName);
+    scheduleSync();
+  }
+  return { renamed, merged };
 }
 
 function newCompletionLog(taskId: string, completedAt: number): CompletionLog {
