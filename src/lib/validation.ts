@@ -26,6 +26,17 @@ export type FieldKey =
 
 export type ValidationErrors = Partial<Record<FieldKey, string>>;
 
+/** プロジェクト名の妥当性チェック（trim 済みの値を渡すこと）。タスクフォームとリネームダイアログで共有する。 */
+export function projectNameError(trimmed: string): string | null {
+  if (trimmed === CONSTANTS.PROJECT_RESERVED_KEY) {
+    return 'この名前は使用できません';
+  }
+  if (trimmed.length > CONSTANTS.PROJECT_NAME_MAX_LENGTH) {
+    return `プロジェクト名は ${CONSTANTS.PROJECT_NAME_MAX_LENGTH} 文字以内にしてください`;
+  }
+  return null;
+}
+
 export function validateForm(v: FormValues, now: number = Date.now()): ValidationErrors {
   const errors: ValidationErrors = {};
 
@@ -78,12 +89,8 @@ export function validateForm(v: FormValues, now: number = Date.now()): Validatio
 
   // V-9 project_name
   if (v.project_name !== null) {
-    const p = v.project_name.trim();
-    if (p === CONSTANTS.PROJECT_RESERVED_KEY) {
-      errors.project_name = 'この名前は使用できません';
-    } else if (p.length > CONSTANTS.PROJECT_NAME_MAX_LENGTH) {
-      errors.project_name = `プロジェクト名は ${CONSTANTS.PROJECT_NAME_MAX_LENGTH} 文字以内にしてください`;
-    }
+    const err = projectNameError(v.project_name.trim());
+    if (err) errors.project_name = err;
   }
 
   return errors;
