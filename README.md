@@ -103,7 +103,7 @@
 | 定期実行 | Cron Triggers（毎分 / 日次 03:00 UTC） |
 
 ### 開発ツール
-- TypeScript Project References（`tsconfig.json` / `tsconfig.node.json` / `tsconfig.workers.json`）
+- TypeScript Project References（`tsconfig.json` / `tsconfig.node.json`）＋ Workers 用の独立した `tsconfig.workers.json`（references には参加しないため、typecheck / build は `tsc -b` に続けて `tsc -p tsconfig.workers.json` を実行する）
 - Wrangler 4（CLI）
 - cross-env（Windows でのメモリ上限指定）
 
@@ -321,11 +321,11 @@ npm run dev
 ```sh
 npm run typecheck
 ```
-（`tsc -b` で Project References をビルド）
+（`tsc -b` でフロント側を、続けて `tsc -p tsconfig.workers.json` で Workers 側を型チェック）
 
 ### 本番ビルド & プレビュー
 ```sh
-npm run build       # tsc -b && cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build
+npm run build       # tsc -b && tsc -p tsconfig.workers.json && cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build
 npm run preview     # http://localhost:4173/
 ```
 
