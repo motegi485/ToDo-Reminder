@@ -102,6 +102,22 @@
   }
 }
 
+/* 三点メニュー等ドロップダウンの登場アニメ（右上を起点に軽く開く） */
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+.menu-in {
+  animation: menu-in 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-in {
+    animation: none !important;
+  }
+}
+
 /* タスク完了時のチェック確定演出 */
 @keyframes task-cb-pop {
   0% {

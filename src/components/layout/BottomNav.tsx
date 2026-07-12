@@ -25,7 +25,7 @@ export function BottomNav() {
                 ].join(' ')
               }
             >
-              <Icon size={22} />
+              <Icon className="h-[1.375rem] w-[1.375rem]" />
               <span>{label}</span>
             </NavLink>
           </li>

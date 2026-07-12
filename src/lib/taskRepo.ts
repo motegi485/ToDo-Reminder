@@ -1,6 +1,5 @@
 import { db } from './db';
 import { storage } from './storage';
-import { calcReminderTime } from './reminder';
 import { futureRecurrenceReminderTime, isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
 import { normalizeColor } from './taskColors';
@@ -23,7 +22,10 @@ export interface TaskInput {
   current_value: number | null;
   target_value: number | null;
   due_date: string | null;
+  // 繰り返し専用のリマインダー（境界0:00の N分前）。非繰り返しでは使わない。
   reminder_offset: number | null;
+  // 非繰り返し専用のリマインダー（ユーザー指定の絶対時刻・ISO文字列）。繰り返しでは使わない。
+  reminder_at: string | null;
   recurrence_rule: RecurrenceRule | null;
   project_name: string | null;
   color: string | null;
@@ -39,18 +41,34 @@ function normalizeProjectName(name: string | null): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+// 絶対時刻リマインダーは秒=00・ミリ秒=0 に丸めてから保存する。cron の配信窓が分境界
+// (T-60, T] に貼られているため、秒が残ると分ちょうどに発火しない（datetime-local は秒=00
+// だが「◯時間後」等 now 由来の値は秒を持つため明示的に丸める）。
+function roundToMinute(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  d.setSeconds(0, 0);
+  return d.toISOString();
+}
+
 function buildTask(input: TaskInput, base?: Task): Task {
   const now = Date.now();
   const due = input.due_date && input.due_date.length > 0 ? input.due_date : null;
   // 期限と繰り返しは排他。期限があれば繰り返しは無効化する。
   const recurrence: RecurrenceRule | null =
     due || !input.recurrence_rule ? null : { type: input.recurrence_rule.type };
-  const reminderOffset = due || recurrence ? input.reminder_offset : null;
+
+  // リマインダーはタスクの性質で2系統。期限（due_date）は通知に一切関与しない。
+  //   繰り返し   → 境界0:00の N分前（reminder_offset を保持）
+  //   非繰り返し → ユーザー指定の絶対時刻（reminder_at を秒切り捨てで格納。offset は null）
   let reminderTime: string | null = null;
-  if (reminderOffset !== null) {
-    if (due) reminderTime = calcReminderTime(due, reminderOffset);
+  let reminderOffset: number | null = null;
+  if (recurrence && input.reminder_offset !== null) {
+    reminderOffset = input.reminder_offset;
     // 現在期間の時刻が既に過去なら次周期へ繰り延べる（保存直後の通知を防ぐ）。
-    else if (recurrence) reminderTime = futureRecurrenceReminderTime(now, recurrence.type, reminderOffset);
+    reminderTime = futureRecurrenceReminderTime(now, recurrence.type, reminderOffset);
+  } else if (!recurrence && input.reminder_at) {
+    reminderTime = roundToMinute(input.reminder_at);
   }
 
   const isQuantitative = input.type === 'quantitative';
@@ -111,6 +129,23 @@ export async function deleteTask(id: string): Promise<void> {
   if (!existing) return;
   await db.tasks.put({ ...existing, status: 'deleted', updated_at: Date.now() });
   scheduleSync();
+}
+
+/**
+ * タスクカードから期限（表示専用メタデータ）を設定・削除する。
+ * 期限は通知に関与しないため reminder_* / recurrence_rule / tz_offset は一切触らない。
+ * 繰り返しタスクとは排他（期限を付けない）: カード側で導線を隠しているが、防御的に no-op にする。
+ */
+export async function setDueDate(id: string, due: string | null): Promise<Task | null> {
+  const existing = await db.tasks.get(id);
+  if (!existing) return null;
+  if (existing.recurrence_rule) return existing;
+  const normalized = due && due.length > 0 ? due : null;
+  if (normalized === existing.due_date) return existing;
+  const task: Task = { ...existing, due_date: normalized, updated_at: Date.now() };
+  await db.tasks.put(task);
+  scheduleSync();
+  return task;
 }
 
 export interface RenameProjectResult {

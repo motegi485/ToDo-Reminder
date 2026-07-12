@@ -29,7 +29,7 @@
 
 - **ログイン不要**：ランダム生成された 12 桁の同期コードがユーザー識別子。アカウント登録の手間がない。
 - **オフラインファースト**：機内モードや圏外でも CRUD できる。オンライン復帰時に自動同期。
-- **通知ファースト**：期限の N 分前に Push 通知が飛ぶ。アプリを起動していなくても OS が知らせる。
+- **通知ファースト**：指定した時刻に Push 通知が飛ぶ（繰り返しは切り替わり 0:00 の N 分前）。アプリを起動していなくても OS が知らせる。
 - **モバイル最適化**：iOS/Android のホーム画面に追加すれば、ネイティブアプリのように使える。
 - **多端末同期**：同期コードを別端末に入力するだけで、タスクが共有される。
 
@@ -40,7 +40,7 @@
 ## 主な機能
 
 ### タスク管理
-- **シンプルタスク**：タイトル + 期限 + リマインド時刻 + 繰り返し設定。
+- **シンプルタスク**：タイトル + リマインダー（非繰り返しは絶対時刻・繰り返しは境界 0:00 の N 分前）+ 繰り返し設定。期限はタスクカード（三点メニュー／右端の期限ピル）から設定する表示専用メタデータで、通知には関与しない。
 - **定量タスク**：「30 ページ読む」「10km 走る」など、目標値に対する進捗を加算で記録できる。チェックボックス＝「進捗を記録」モーダル（delta 加算）／数値タップ＝直接書き換え。
 - **プロジェクト分類**：プロジェクト名でグルーピング。展開／折り畳み状態を端末ごとに保持。作成後もプロジェクトヘッダーの「…」メニューからいつでも名前を変更できる（既存の別名と同名にすると1つに統合される。統合になる場合は保存前にダイアログ内で警告表示）。
 - **繰り返しタスク**：daily / weekly / monthly。完了してもタスクは消えず、カレンダー境界（毎日 0:00／毎週月曜 0:00／毎月 1 日 0:00）を跨ぐと自動で未完了へ「復活」する（定量タスクは現在値が 0 にリセット）。期限と繰り返しは排他。完了は `completions` ストアに履歴として残し、レポートへ反映（visibilitychange / 定期実行でも再評価）。
@@ -49,6 +49,7 @@
 - **ソフト削除**：deleted 状態として保持し、365 日後にクリーンアップ Cron で物理削除。
 
 ### リマインダー / 通知
+- **リマインダーの2系統**：`reminder_time`（絶対時刻・ISO）が発火時刻の一次データ。非繰り返しタスクはユーザーが指定した絶対時刻をそのまま格納し（`reminder_offset` は `null`）、繰り返しタスクは切り替わり 0:00 の N 分前（`reminder_offset` を保持し `futureRecurrenceReminderTime` で算出）。**期限（`due_date`）は通知に一切関与しない表示専用メタデータ**。秒は cron の分境界に合わせて保存時に切り捨てる。
 - **オフライン通知**：Push 未購読の環境向けに、起動中のクライアントがリマインダー時刻を過ぎた（24 時間以内の）active タスクを検出し、Service Worker のローカル通知で表示（`src/lib/offlineNotify.ts`）。
 - **Push 通知**：Cloudflare Workers の Cron が毎分起動し、**同期コード配下の全端末**（`push_subscriptions` テーブルに端末単位で保持）へ Web Push を配信。繰り返しタスクの規則は「**リマインダー時刻の時点でその周期内に完了していなければ、アプリの開閉にかかわらず配信する**」。いつ完了したか・何周期未達成のまま跨いだかは問わず、周期境界で未完了へ復活した（はずの）タスクには毎周期届き、その周期内に完了済みなら送らない。送信後は `reminder_time` をサーバー側でも次周期へ前進させるため、アプリ未起動でも途切れない（`tz_offset` で端末ローカルの境界を再現）。復活（status の書き換え）自体はクライアントの責務のままで、サーバーは status を変更しない。
 - **配信の堅牢化**：送信の一時失敗（5xx/ネットワーク断）は購読を消さず、冪等ガードを取り下げて次分に再試行する（繰り返しは 10 分、単発は 24 時間の窓内）。Cron の分飛びで取りこぼした単発リマインダーも 24 時間以内なら回収して送る。恒久的に無効な購読（404/410）だけをその端末分に限って削除する。通知許可済みの端末はアプリ起動時に購読をサーバーへ登録し直すため、ブラウザの購読ローテーションや失効からも自己修復する。
@@ -165,7 +166,7 @@
     ├── components/
     │   ├── layout/             Layout, Sidebar, BottomNav, OfflineBanner
     │   ├── task/               TaskCard, TaskFormDialog, QuantitativeProgress, RecurrenceField,
-    │   │                       ReminderField, SortMenu, EmptyState, ColorPicker, accentColor.ts
+    │   │                       ReminderField, DueDateSheet, SortMenu, EmptyState, ColorPicker, accentColor.ts
     │   ├── project/            ProjectGroup, ProjectInput, RenameProjectDialog
     │   ├── report/             RingChart, StreakCard, MonthlyBarChart, QuantitativeList
     │   ├── settings/           SyncCodeCard, SyncFromOtherDevice, NotificationStatus,
@@ -181,8 +182,7 @@
     │   ├── storage.ts          LocalStorage 型付きラッパ
     │   ├── constants.ts        SYNC_INTERVAL_MS, TITLE_MAX_LENGTH 等
     │   ├── syncCode.ts         12 桁コード生成
-    │   ├── taskRepo.ts         CRUD + 繰り返し復活(revive) + 完了ログ + ソフト削除
-    │   ├── reminder.ts         due_date + offset → reminder_time 計算
+    │   ├── taskRepo.ts         CRUD + 期限設定(setDueDate) + 繰り返し復活(revive) + 完了ログ + ソフト削除
     │   ├── recurrence.ts       繰り返し境界(0:00)計算・復活判定・リマインダー時刻
     │   ├── reports.ts          集計ロジック（completions ベースのストリーク等）
     │   ├── validation.ts       入力バリデーション

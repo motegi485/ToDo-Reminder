@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import { setQuantitativeValue } from '@/lib/taskRepo';
 import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
@@ -8,11 +7,9 @@ import type { Task } from '@/types';
 
 interface Props {
   task: Task;
-  /** 数値の前（同じ行）に表示する期限ラベルなど。任意 */
-  leading?: ReactNode;
 }
 
-export function QuantitativeProgress({ task, leading }: Props) {
+export function QuantitativeProgress({ task }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,9 +43,8 @@ export function QuantitativeProgress({ task, leading }: Props) {
 
   return (
     <div className="mt-1">
-      {/* メタ行：期限（任意）＋ タップで直接編集できる数値 */}
+      {/* メタ行：タップで直接編集できる数値 */}
       <div className="flex items-center gap-1.5 text-[0.8125rem] text-slate-500 dark:text-slate-400">
-        {leading}
         {editing ? (
           <span className="flex items-center gap-1">
             <input
