@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FormDialog } from '@/components/ui/FormDialog';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { Toggle } from '@/components/ui/Toggle';
 import { ReminderField } from './ReminderField';
 import { RecurrenceField } from './RecurrenceField';
 import { ColorPicker } from './ColorPicker';
@@ -9,7 +8,6 @@ import { ProjectInput } from '@/components/project/ProjectInput';
 import { validateForm, type FormValues } from '@/lib/validation';
 import { createTask, updateTask } from '@/lib/taskRepo';
 import { DEFAULT_TASK_COLOR } from '@/lib/taskColors';
-import { fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { showToast } from '@/components/ui/Toast';
 import type { Task, TaskType } from '@/types';
 
@@ -32,6 +30,7 @@ function emptyValues(): FormValues {
     target_value: null,
     due_date: null,
     reminder_offset: null,
+    reminder_at: null,
     recurrence_rule: null,
     project_name: null,
     // 新規タスクは既定色を選択状態にする（自動配色にしたい場合はユーザーが「自動」を選ぶ）。
@@ -40,13 +39,17 @@ function emptyValues(): FormValues {
 }
 
 function fromTask(t: Task): FormValues {
+  const recurring = t.recurrence_rule !== null;
   return {
     title: t.title,
     type: t.type,
     current_value: t.current_value,
     target_value: t.target_value,
     due_date: t.due_date,
-    reminder_offset: t.reminder_offset,
+    // 繰り返しは offset を、非繰り返しは reminder_time を絶対時刻として読み込む（遅延移行）。
+    // 非繰り返しに残った旧 reminder_offset は無視する。
+    reminder_offset: recurring ? t.reminder_offset : null,
+    reminder_at: recurring ? null : t.reminder_time,
     recurrence_rule: t.recurrence_rule,
     project_name: t.project_name,
     // 既存タスクは保存値をそのまま。未設定（旧データ）は自動配色。
@@ -54,18 +57,37 @@ function fromTask(t: Task): FormValues {
   };
 }
 
+// リマインダー（絶対時刻）の初期値: 現在時刻から 60 分後を分境界へ丸めた ISO。
+function defaultReminderAt(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() + 60);
+  d.setSeconds(0, 0);
+  return d.toISOString();
+}
+
 export function TaskFormDialog({ open, onClose, editing }: Props) {
   const [values, setValues] = useState<FormValues>(emptyValues);
   const [submitting, setSubmitting] = useState(false);
+  // 編集ダイアログを開いた時点の DB 上の絶対時刻リマインダー（非繰り返しのみ）。
+  // 差分バリデーション（V-5'）と datetime-local の min 属性の出し分けに使う。
+  const [initialReminderAt, setInitialReminderAt] = useState<string | null>(null);
+  // 保存時再検証で now を取り直してエラーを再評価させるためのトリガ（§5.5）。
+  const [revalidateTick, setRevalidateTick] = useState(0);
 
   useEffect(() => {
     if (open) {
       setValues(editing ? fromTask(editing) : emptyValues());
+      setInitialReminderAt(editing && !editing.recurrence_rule ? editing.reminder_time : null);
+      setRevalidateTick(0);
       setSubmitting(false);
     }
   }, [open, editing]);
 
-  const errors = useMemo(() => validateForm(values), [values]);
+  const errors = useMemo(
+    () => validateForm(values, Date.now(), initialReminderAt),
+    // revalidateTick を依存に含め、値を触らず時間だけ経過した場合でも now を取り直せるようにする。
+    [values, initialReminderAt, revalidateTick],
+  );
   const canSubmit = !submitting && Object.keys(errors).length === 0;
 
   const setField = <K extends keyof FormValues>(key: K, val: FormValues[K]) => {
@@ -82,47 +104,44 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
     }));
   };
 
-  const handleDueToggle = (on: boolean) => {
-    if (on) {
-      const d = new Date();
-      d.setMinutes(d.getMinutes() + 60);
-      const iso = d.toISOString();
-      // 期限と繰り返しは排他。期限ON時は繰り返しを解除する。
-      setValues((prev) => ({
-        ...prev,
-        due_date: iso,
-        reminder_offset: null,
-        recurrence_rule: null,
-      }));
-    } else {
-      setValues((prev) => ({
-        ...prev,
-        due_date: null,
-        reminder_offset: null,
-      }));
-    }
+  // 繰り返しの ON/OFF は絶対時刻 ⇄ N分前でリマインダーの意味が変わるため、切替時は
+  // リマインダーを OFF に戻す（暗黙の変換で誤設定を生まないため。§4.1）。
+  // ON 時は期限との排他で due_date も解除する。
+  const handleRecurrenceToggle = (on: boolean) => {
+    setValues((prev) => ({
+      ...prev,
+      recurrence_rule: on ? { type: 'daily' } : null,
+      due_date: on ? null : prev.due_date,
+      reminder_offset: null,
+      reminder_at: null,
+    }));
   };
 
-  const handleRecurrenceToggle = (on: boolean) => {
-    if (on) {
-      // 排他。繰り返しON時は期限を解除する。
-      setValues((prev) => ({
-        ...prev,
-        recurrence_rule: { type: 'daily' },
-        due_date: null,
-        reminder_offset: null,
-      }));
+  // リマインダーの入力モードは繰り返しの有無で決まる。
+  const reminderMode: 'absolute' | 'offset' = values.recurrence_rule ? 'offset' : 'absolute';
+  const reminderEnabled = values.recurrence_rule
+    ? values.reminder_offset !== null
+    : values.reminder_at !== null;
+
+  const handleReminderToggle = (on: boolean) => {
+    if (values.recurrence_rule) {
+      setField('reminder_offset', on ? 30 : null);
     } else {
-      setValues((prev) => ({
-        ...prev,
-        recurrence_rule: null,
-        reminder_offset: null,
-      }));
+      setField('reminder_at', on ? defaultReminderAt() : null);
     }
   };
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    // 保存時再検証: ダイアログを開いたまま放置すると errors（useMemo）の now が古くなり、
+    // 最小リード時間を割った値が保存されうる。fresh な now で再検証し、エラーがあれば
+    // 中止する（§5.5）。ただし黙って止めると活性ボタンが無反応に見えるため、再評価を
+    // 促して（revalidateTick）赤字・ボタン無効化を反映し、トーストでも知らせる。
+    if (Object.keys(validateForm(values, Date.now(), initialReminderAt)).length > 0) {
+      setRevalidateTick((t) => t + 1);
+      showToast('入力内容を確認してください', 'warn');
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -132,6 +151,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
         target_value: values.target_value,
         due_date: values.due_date,
         reminder_offset: values.reminder_offset,
+        reminder_at: values.reminder_at,
         recurrence_rule: values.recurrence_rule,
         project_name: values.project_name,
         color: values.color,
@@ -260,36 +280,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
           </div>
         )}
 
-        <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-          <div className="flex items-center justify-between pt-2">
-            <label className="text-[0.9375rem] font-medium">期限を設定</label>
-            <Toggle
-              checked={values.due_date !== null}
-              onChange={handleDueToggle}
-              label="期限を設定"
-            />
-          </div>
-          {values.due_date !== null && (
-            <div className="pl-3 border-l-2 border-slate-200 dark:border-slate-700 space-y-3">
-              <input
-                type="datetime-local"
-                value={toLocalInputValue(values.due_date)}
-                onChange={(e) => setField('due_date', fromLocalInputValue(e.target.value))}
-                className="block w-full min-w-0 max-w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[0.9375rem]"
-              />
-              {errors.due_date && <p className="text-[0.8125rem] text-red-600">{errors.due_date}</p>}
-
-              <ReminderField
-                enabled={values.reminder_offset !== null}
-                onEnabledChange={(on) => setField('reminder_offset', on ? 30 : null)}
-                offset={values.reminder_offset}
-                onOffsetChange={(v) => setField('reminder_offset', v)}
-                error={errors.reminder_offset}
-              />
-            </div>
-          )}
-        </div>
-
+        {/* 繰り返し（リマインダーの入力モードを決めるため、リマインダーより上に置く） */}
         <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="pt-2">
             <RecurrenceField
@@ -297,10 +288,23 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
               onEnabledChange={handleRecurrenceToggle}
               rule={values.recurrence_rule}
               onRuleChange={(rule) => setField('recurrence_rule', rule)}
-              reminderOffset={values.reminder_offset}
-              onReminderEnabledChange={(on) => setField('reminder_offset', on ? 30 : null)}
-              onReminderOffsetChange={(v) => setField('reminder_offset', v)}
-              reminderError={errors.reminder_offset}
+            />
+          </div>
+        </div>
+
+        {/* リマインダー（繰り返しOFF=絶対時刻 / 繰り返しON=N分前） */}
+        <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-2">
+            <ReminderField
+              mode={reminderMode}
+              enabled={reminderEnabled}
+              onEnabledChange={handleReminderToggle}
+              offset={values.reminder_offset}
+              onOffsetChange={(v) => setField('reminder_offset', v)}
+              reminderAt={values.reminder_at}
+              onReminderAtChange={(v) => setField('reminder_at', v)}
+              initialReminderAt={initialReminderAt}
+              error={reminderMode === 'offset' ? errors.reminder_offset : errors.reminder_at}
             />
           </div>
         </div>

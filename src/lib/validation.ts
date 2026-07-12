@@ -8,7 +8,10 @@ export interface FormValues {
   current_value: number | null;
   target_value: number | null;
   due_date: string | null;
+  // 繰り返し専用のリマインダー（境界0:00の N分前）
   reminder_offset: number | null;
+  // 非繰り返し専用のリマインダー（絶対時刻・ISO文字列）
+  reminder_at: string | null;
   recurrence_rule: RecurrenceRule | null;
   project_name: string | null;
   // チェックボックスのアクセント色。null は自動配色（種類×期限）。
@@ -21,6 +24,7 @@ export type FieldKey =
   | 'current_value'
   | 'due_date'
   | 'reminder_offset'
+  | 'reminder_at'
   | 'recurrence_rule'
   | 'project_name';
 
@@ -37,7 +41,13 @@ export function projectNameError(trimmed: string): string | null {
   return null;
 }
 
-export function validateForm(v: FormValues, now: number = Date.now()): ValidationErrors {
+export function validateForm(
+  v: FormValues,
+  now: number = Date.now(),
+  // 編集ダイアログを開いた時点の DB 値（非繰り返しの reminder_time）。
+  // 差分バリデーション（V-5'）で「ユーザーが日時を触ったか」を判定するのに使う。
+  initialReminderAt: string | null = null,
+): ValidationErrors {
   const errors: ValidationErrors = {};
 
   // V-1 title
@@ -59,31 +69,30 @@ export function validateForm(v: FormValues, now: number = Date.now()): Validatio
     }
   }
 
-  // V-4 due_date (when ON, must exist)
+  // V-4 due_date（ON のとき空文字は不可。過去日は許容＝通知に関与しない表示メタデータのため）
   if (v.due_date !== null && v.due_date.length === 0) {
     errors.due_date = '期限を入力してください';
   }
 
-  // V-5 reminder_offset
-  if (v.reminder_offset !== null) {
+  // 繰り返しのリマインダー（reminder_offset・境界0:00の N分前）は繰り返し時のみ検証する。
+  if (v.recurrence_rule && v.reminder_offset !== null) {
+    // V-5 最小オフセット
     if (!Number.isInteger(v.reminder_offset) || v.reminder_offset < CONSTANTS.REMINDER_MIN_OFFSET_MIN) {
       errors.reminder_offset = `リマインダーは ${CONSTANTS.REMINDER_MIN_OFFSET_MIN} 分以上前で設定してください`;
     }
-  }
-
-  // V-6 reminder_time (lead time)
-  if (v.due_date && v.reminder_offset !== null && !errors.reminder_offset) {
-    const dueMs = new Date(v.due_date).getTime();
-    const reminderMs = dueMs - v.reminder_offset * 60 * 1000;
-    if (reminderMs - now < CONSTANTS.REMINDER_MIN_LEAD_TIME_MIN * 60 * 1000) {
-      errors.reminder_offset = 'リマインダー時刻が直近すぎます';
+    // V-7 リマインダーは繰り返し期間より短くする
+    if (!errors.reminder_offset && v.reminder_offset >= periodMinutes(v.recurrence_rule.type)) {
+      errors.reminder_offset = 'リマインダーが繰り返し期間を超えています';
     }
   }
 
-  // V-7 reminder × recurrence（リマインダーは繰り返し期間より短くする）
-  if (v.reminder_offset !== null && v.recurrence_rule && !errors.reminder_offset) {
-    if (v.reminder_offset >= periodMinutes(v.recurrence_rule.type)) {
-      errors.reminder_offset = 'リマインダーが繰り返し期間を超えています';
+  // V-5' 非繰り返しのリマインダー（reminder_at・絶対時刻）は最小リード時間（5分）を満たす。
+  // 差分バリデーション: 編集時に初期値と同一（＝ユーザーが日時を触っていない）ならスキップし、
+  // 既に過去のリマインダーを持つタスクでもタイトル修正等を妨げない（§5.3）。
+  if (!v.recurrence_rule && v.reminder_at !== null && v.reminder_at !== initialReminderAt) {
+    const ms = Date.parse(v.reminder_at);
+    if (Number.isNaN(ms) || ms - now < CONSTANTS.REMINDER_MIN_LEAD_TIME_MIN * 60 * 1000) {
+      errors.reminder_at = `リマインダーは今から ${CONSTANTS.REMINDER_MIN_LEAD_TIME_MIN} 分以上先に設定してください`;
     }
   }
 

@@ -1,5 +1,4 @@
 import { Toggle } from '@/components/ui/Toggle';
-import { ReminderField } from './ReminderField';
 import type { RecurrenceRule, RecurrenceType } from '@/types';
 
 interface Props {
@@ -7,11 +6,6 @@ interface Props {
   onEnabledChange: (next: boolean) => void;
   rule: RecurrenceRule | null;
   onRuleChange: (rule: RecurrenceRule | null) => void;
-  // 繰り返し専用のリマインダー（基準は切り替わりの 0:00）
-  reminderOffset: number | null;
-  onReminderEnabledChange: (on: boolean) => void;
-  onReminderOffsetChange: (offset: number | null) => void;
-  reminderError?: string;
   disabled?: boolean;
 }
 
@@ -21,17 +15,9 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: RecurrenceType; label: string }> = [
   { value: 'monthly', label: '毎月' },
 ];
 
-export function RecurrenceField({
-  enabled,
-  onEnabledChange,
-  rule,
-  onRuleChange,
-  reminderOffset,
-  onReminderEnabledChange,
-  onReminderOffsetChange,
-  reminderError,
-  disabled,
-}: Props) {
+// 繰り返し種別のトグル＋セレクトのみ。リマインダー（N分前）は独立した ReminderField
+// （offset モード）が担うため、ここには持たない。
+export function RecurrenceField({ enabled, onEnabledChange, rule, onRuleChange, disabled }: Props) {
   const type: RecurrenceType = rule?.type ?? 'daily';
 
   return (
@@ -54,20 +40,6 @@ export function RecurrenceField({
               </option>
             ))}
           </select>
-
-          <ReminderField
-            enabled={reminderOffset !== null}
-            onEnabledChange={onReminderEnabledChange}
-            offset={reminderOffset}
-            onOffsetChange={onReminderOffsetChange}
-            error={reminderError}
-            disabled={disabled}
-          />
-          {reminderOffset !== null && (
-            <p className="text-xs leading-relaxed text-slate-400 dark:text-slate-500">
-              切り替わり（0:00）を基準に通知します。例: 10分前 → 直前の 23:50
-            </p>
-          )}
         </div>
       )}
     </div>

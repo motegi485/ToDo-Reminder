@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, MoreVertical, Repeat } from 'lucide-react';
+import { Bell, CalendarClock, CalendarPlus, MoreVertical, Pencil, Repeat, Trash2 } from 'lucide-react';
 import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
+import { DueDateSheet } from './DueDateSheet';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { completeTask, deleteTask, setQuantitativeValue, uncompleteTask } from '@/lib/taskRepo';
 import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
 import { prefersReducedMotion } from '@/lib/motion';
-import { formatDueLabel, formatReminderOffset } from '@/lib/format';
+import { formatDuePill, formatReminderAbsolute, formatReminderOffset } from '@/lib/format';
 import type { Task } from '@/types';
 
 const COMMIT_DELAY_MS = 260;
@@ -22,6 +23,7 @@ interface Props {
 export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
   const accent = accentForTask(task);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [dueSheetOpen, setDueSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showQuantModal, setShowQuantModal] = useState(false);
   const [completionDraft, setCompletionDraft] = useState('');
@@ -38,18 +40,33 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [menuOpen]);
 
   const completed = task.status === 'completed';
   const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
-  const due = task.due_date ? formatDueLabel(task.due_date) : null;
+  // 完了タスクは overdue 扱いしない（テキストの「期限切れ」も赤配色も未完了限定。§4.2）。
+  const due = task.due_date ? formatDuePill(task.due_date, new Date(), !completed) : null;
+  const dueOverdue = !!due?.overdue;
   const recurrenceLabel = task.recurrence_rule
     ? { daily: '毎日', weekly: '毎週', monthly: '毎月' }[task.recurrence_rule.type]
     : null;
-  const reminderLabel =
-    task.reminder_offset !== null ? formatReminderOffset(task.reminder_offset) : null;
+  // リマインダー表示: 繰り返し → N分前 / 非繰り返し → 絶対時刻。
+  const reminderLabel = task.recurrence_rule
+    ? task.reminder_offset !== null
+      ? formatReminderOffset(task.reminder_offset)
+      : null
+    : task.reminder_time
+      ? formatReminderAbsolute(task.reminder_time)
+      : null;
 
   // 実状態が completed になったら楽観表示(pending)を解除して整合させる
   useEffect(() => {
@@ -147,7 +164,9 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
           onClick={handleCheck}
           onAnimationEnd={() => setAnimateCheck(false)}
           className={[
-            'mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
+            'relative mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
+            // 視覚は 24px のまま、当たり判定だけ擬似要素で広げる（誤タップ対策）
+            "before:absolute before:-inset-2 before:rounded-full before:content-['']",
             'transition-[background-color,border-color,transform] active:scale-90',
             showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
             animateCheck ? 'task-cb-pop' : '',
@@ -180,48 +199,22 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
             {task.title}
           </div>
 
-          {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は leading で同じ行に表示 */}
-          {task.type === 'quantitative' && (
-            <QuantitativeProgress
-              task={task}
-              leading={
-                due ? (
-                  <>
-                    <span className={due.overdue && !completed ? 'text-red-600 dark:text-red-400' : undefined}>
-                      期限 {due.text}
-                    </span>
-                    <span aria-hidden>·</span>
-                  </>
-                ) : null
-              }
-            />
-          )}
-
-          {/* シンプルタスクの期限行 */}
-          {task.type !== 'quantitative' && due && (
-            <div
-              className={[
-                'mt-1 text-[0.8125rem]',
-                due.overdue && !completed ? 'text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400',
-              ].join(' ')}
-            >
-              期限: {due.text}
-            </div>
-          )}
+          {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は右端の期限ピルへ一本化した。 */}
+          {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
 
           {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
           {(recurrenceLabel || reminderLabel) && (
             <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.75rem] text-slate-500 dark:text-slate-400">
               {recurrenceLabel && (
                 <span className="inline-flex items-center gap-1">
-                  <Repeat size={12} aria-hidden />
+                  <Repeat aria-hidden className="h-3 w-3" />
                   {recurrenceLabel}
                 </span>
               )}
               {recurrenceLabel && reminderLabel && <span aria-hidden>·</span>}
               {reminderLabel && (
                 <span className="inline-flex items-center gap-1">
-                  <Bell size={12} aria-hidden />
+                  <Bell aria-hidden className="h-3 w-3" />
                   <span className="sr-only">リマインダー </span>
                   {reminderLabel}
                 </span>
@@ -236,6 +229,48 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
         </div>
       </div>
 
+      {/* 期限ピル（本文の右・三点メニューの左）。期限は表示専用メタデータ。
+          カレンダーアイコンで「期限」だと一目で分かるようにする（リマインダーの Bell と語彙を分ける）。 */}
+      {due &&
+        (hideMenu ? (
+          <span
+            className={[
+              'mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
+              'text-[0.75rem] tabular-nums whitespace-nowrap',
+              dueOverdue
+                ? 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400'
+                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+              completed ? 'opacity-60' : '',
+            ].join(' ')}
+          >
+            <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
+            <span className="sr-only">期限 </span>
+            {due.text}
+          </span>
+        ) : (
+          <button
+            type="button"
+            aria-label="期限を変更"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDueSheetOpen(true);
+            }}
+            className={[
+              'relative mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
+              'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
+              // 当たり判定を縦にわずかに広げる（見た目は不変）
+              "before:absolute before:-inset-y-1.5 before:-inset-x-0.5 before:content-['']",
+              dueOverdue
+                ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
+              completed ? 'opacity-60' : '',
+            ].join(' ')}
+          >
+            <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
+            {due.text}
+          </button>
+        ))}
+
       {!hideMenu && (
         <div ref={menuRef} className="relative">
           <button
@@ -245,30 +280,52 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
               e.stopPropagation();
               setMenuOpen((v) => !v);
             }}
-            className="p-1 -m-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+            className="p-2 -m-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
           >
-            <MoreVertical size={18} />
+            <MoreVertical className="h-[1.125rem] w-[1.125rem]" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]">
+            <div
+              role="menu"
+              className="absolute right-0 top-full mt-1 z-50 min-w-[150px] origin-top-right menu-in rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]"
+            >
+              {/* 期限なし・非繰り返しのみ「期限を設定」を出す（期限ありは右ピルから、繰り返しは排他のため出さない） */}
+              {task.due_date === null && !task.recurrence_rule && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setDueSheetOpen(true);
+                  }}
+                >
+                  <CalendarPlus aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                  期限を設定
+                </button>
+              )}
               <button
                 type="button"
-                className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                role="menuitem"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
                   setMenuOpen(false);
                   onEdit?.(task);
                 }}
               >
+                <Pencil aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
                 編集
               </button>
               <button
                 type="button"
-                className="w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600"
+                role="menuitem"
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
                 onClick={() => {
                   setMenuOpen(false);
                   setConfirmDelete(true);
                 }}
               >
+                <Trash2 aria-hidden className="h-4 w-4" />
                 削除
               </button>
             </div>
@@ -339,6 +396,7 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}
       />
+      <DueDateSheet open={dueSheetOpen} onClose={() => setDueSheetOpen(false)} task={task} />
     </div>
   );
 }

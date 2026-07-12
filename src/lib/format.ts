@@ -2,17 +2,29 @@ function pad(n: number): string {
   return n.toString().padStart(2, '0');
 }
 
-export function formatDueLabel(iso: string, now: Date = new Date()): { text: string; overdue: boolean } {
+// タスクカード右端の期限ピル用。常にフル表示（相対表現や時刻省略はしない）。
+// 通常は `7/15 18:00`、期限切れ（due < now）は `7/10 期限切れ`。
+// respectOverdue=false（完了タスク）では期限切れ扱いにせず常に通常表示にする
+// （§4.2: 「期限切れ」表記と赤配色は未完了タスク限定）。
+export function formatDuePill(
+  iso: string,
+  now: Date = new Date(),
+  respectOverdue = true,
+): { text: string; overdue: boolean } {
   const d = new Date(iso);
-  const overdue = d.getTime() < now.getTime();
-  const month = d.getMonth() + 1;
-  const day = d.getDate();
-  const sameYear = d.getFullYear() === now.getFullYear();
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const datePart = sameYear ? `${month}月${day}日` : `${d.getFullYear()}年${month}月${day}日`;
-  return { text: `${datePart} ${time}`, overdue };
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  const overdue = respectOverdue && d.getTime() < now.getTime();
+  if (overdue) return { text: `${md} 期限切れ`, overdue: true };
+  return { text: `${md} ${d.getHours()}:${pad(d.getMinutes())}`, overdue: false };
 }
 
+// 非繰り返しリマインダーの絶対時刻表示（ベルアイコン用）。例: `7/13 9:00`。
+export function formatReminderAbsolute(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${pad(d.getMinutes())}`;
+}
+
+// 繰り返しリマインダーの「N分前」表示。
 export function formatReminderOffset(offsetMin: number): string {
   if (offsetMin >= 1440 && offsetMin % 1440 === 0) return `${offsetMin / 1440}日前`;
   if (offsetMin >= 60 && offsetMin % 60 === 0) return `${offsetMin / 60}時間前`;
