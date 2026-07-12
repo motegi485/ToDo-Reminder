@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Inbox, MoreVertical } from 'lucide-react';
+import { ChevronDown, Inbox, MoreVertical, Pencil } from 'lucide-react';
 import { TaskCard } from '@/components/task/TaskCard';
 import { RenameProjectDialog } from './RenameProjectDialog';
 import { sortTasksInGroup } from '@/lib/sort';
@@ -35,8 +35,15 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
       if (!menuRef.current) return;
       if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
     document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [menuOpen]);
 
   const handleToggle = () => setOpen(toggleExpanded(name));
@@ -69,7 +76,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
         >
           <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
             {isUncategorized && (
-              <Inbox size={18} className="shrink-0 text-slate-400 dark:text-slate-500" />
+              <Inbox className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-400 dark:text-slate-500" />
             )}
             <span
               className={
@@ -80,8 +87,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
             </span>
           </h2>
           <ChevronDown
-            size={19}
-            className={`shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            className={`h-5 w-5 shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
           />
           <span className="flex-1" />
           <span className="text-sm text-slate-400 dark:text-slate-500">
@@ -98,20 +104,25 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
               }}
-              className="p-1 -m-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+              className="p-2 -m-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
             >
-              <MoreVertical size={18} />
+              <MoreVertical className="h-[1.125rem] w-[1.125rem]" />
             </button>
             {menuOpen && (
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[120px] rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]">
+              <div
+                role="menu"
+                className="absolute right-0 top-full mt-1 z-50 min-w-[150px] origin-top-right menu-in rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]"
+              >
                 <button
                   type="button"
-                  className="w-full text-left px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                   onClick={() => {
                     setMenuOpen(false);
                     setRenameOpen(true);
                   }}
                 >
+                  <Pencil aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
                   名前を変更
                 </button>
               </div>
