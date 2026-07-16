@@ -9,8 +9,15 @@ const SLIDE_EASE = 'cubic-bezier(.2,.7,.3,1)';
  * 並べ替え前後の Y 位置差を FLIP で埋める。
  * transform / opacity のみを Web Animations API で動かすため、レイアウトを伴わずコンポジタで完結する。
  * keys は描画順の task.id 配列。順序が変わったときだけ再実行される。
+ *
+ * enabled=false のときはアニメーションせず位置基準（prevTops）だけ更新する。
+ * ドラッグ中の押しのけは @dnd-kit が transform で担当するため、その間は FLIP を止めて競合を避ける。
  */
-export function useFlipReorder(containerRef: RefObject<HTMLElement>, keys: string[]): void {
+export function useFlipReorder(
+  containerRef: RefObject<HTMLElement>,
+  keys: string[],
+  enabled = true,
+): void {
   const prevTops = useRef<Map<string, number>>(new Map());
 
   useLayoutEffect(() => {
@@ -25,7 +32,7 @@ export function useFlipReorder(containerRef: RefObject<HTMLElement>, keys: strin
       if (id) lastTops.set(id, c.getBoundingClientRect().top);
     }
 
-    if (!prefersReducedMotion()) {
+    if (enabled && !prefersReducedMotion()) {
       const viewport = window.innerHeight;
       for (const c of children) {
         const id = c.dataset.taskId;
@@ -48,6 +55,6 @@ export function useFlipReorder(containerRef: RefObject<HTMLElement>, keys: strin
       }
     }
 
-    prevTops.current = lastTops; // 次回の first として保存
-  }, [keys.join('|')]); // 順序が変わったときだけ走る
+    prevTops.current = lastTops; // 次回の first として保存（enabled に関わらず必ず更新）
+  }, [keys.join('|'), enabled]); // 順序変化 or 有効/無効の切替で走る
 }

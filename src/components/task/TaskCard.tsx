@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Bell, CalendarClock, CalendarPlus, MoreVertical, Pencil, Repeat, Trash2 } from 'lucide-react';
 import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
@@ -18,9 +18,23 @@ interface Props {
   onEdit?: (task: Task) => void;
   hideMenu?: boolean;
   showProjectLabel?: boolean;
+  // ドラッグ並べ替え用（SortableTaskCard から注入）。未指定なら従来どおりの静的カード。
+  dragRef?: (el: HTMLElement | null) => void;
+  dragStyle?: CSSProperties;
+  dragHandleProps?: Record<string, unknown>;
+  isDragging?: boolean;
 }
 
-export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
+export function TaskCard({
+  task,
+  onEdit,
+  hideMenu,
+  showProjectLabel,
+  dragRef,
+  dragStyle,
+  dragHandleProps,
+  isDragging,
+}: Props) {
   const accent = accentForTask(task);
   const [menuOpen, setMenuOpen] = useState(false);
   const [dueSheetOpen, setDueSheetOpen] = useState(false);
@@ -147,8 +161,15 @@ export function TaskCard({ task, onEdit, hideMenu, showProjectLabel }: Props) {
 
   return (
     <div
+      {...dragHandleProps}
+      ref={dragRef}
       data-task-id={task.id}
-      className="flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4 shadow-card dark:shadow-none"
+      style={dragStyle}
+      className={[
+        'flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4 shadow-card dark:shadow-none',
+        // ドラッグ中は少し持ち上げて掴んでいる感を出す（他カードより前面へ）
+        isDragging ? 'relative z-10 opacity-80 shadow-lg' : '',
+      ].join(' ')}
     >
       {/* 完了タスクはチェック＋本文だけを薄くする。メニュー／ダイアログには波及させない */}
       <div
