@@ -2,10 +2,14 @@ import { db } from './db';
 import { storage } from './storage';
 import { futureRecurrenceReminderTime, isPeriodElapsed, recurrenceReminderTime } from './recurrence';
 import { scheduleSync } from './sync';
+import { taskOrderKey } from './sort';
 import { normalizeColor } from './taskColors';
 import { projectNameError } from './validation';
 import { migrateProjectState } from './projectExpansion';
 import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
+
+// 手動並べ替えの端（先頭/末尾）へ置くときのマージン、および衝突時リナンバーの等間隔幅。
+const REORDER_STEP = 1000;
 
 function generateId(): string {
   const bytes = new Uint8Array(16);
@@ -98,9 +102,28 @@ function buildTask(input: TaskInput, base?: Task): Task {
   };
 }
 
+/**
+ * プロジェクト内 active の最大 effective + 1 と now の大きい方を返す（active が無ければ now）。
+ * 新規タスクを常に最上部へ置くための sort_order。null プロジェクトも扱えるよう、
+ * where('project_name').equals(null) は使えないためメモリフィルタで集める。
+ */
+async function topSortOrder(projectName: string | null): Promise<number> {
+  const actives = (await db.tasks.where('status').equals('active').toArray()).filter(
+    (t) => t.project_name === projectName,
+  );
+  const maxEff = actives.length > 0 ? Math.max(...actives.map(taskOrderKey)) : -Infinity;
+  return Math.max(Date.now(), maxEff + 1);
+}
+
 export async function createTask(input: TaskInput): Promise<Task> {
   const task = buildTask(input);
-  await db.tasks.put(task);
+  // 新規タスクは常に最上部（active の最大 effective より大きい sort_order を割り当てる）。
+  // 注意: このトランザクション内に非 Dexie の await（fetch/setTimeout 等）を足さないこと
+  // （Dexie トランザクションが途中でオートコミットされ、サイレントに壊れる）。
+  await db.transaction('rw', db.tasks, async () => {
+    task.sort_order = await topSortOrder(task.project_name);
+    await db.tasks.put(task);
+  });
   scheduleSync();
   return task;
 }
@@ -182,8 +205,9 @@ export async function renameProject(oldName: string, newNameRaw: string): Promis
         .equals(newName)
         .filter((t) => t.status !== 'deleted')
         .count()) > 0;
-    // completed タスクの達成順（sortTasksInGroup が updated_at 昇順で並べる）を保つため、
-    // 一律で同一時刻にせず updated_at 昇順 + 1ms ずつ加算する。
+    // completed タスクの達成順（updated_at の大小関係）を保つため、一律で同一時刻にせず
+    // updated_at 昇順 + 1ms ずつ加算する（順序保存写像なので sortTasksInGroup の昇順/降順に依らず
+    // 相対的な達成順は維持される）。
     targets.sort((a, b) => a.updated_at - b.updated_at);
     const base = Date.now();
     const updated = targets.map((t, i) => ({ ...t, project_name: newName, updated_at: base + i }));
@@ -198,6 +222,87 @@ export async function renameProject(oldName: string, newNameRaw: string): Promis
     scheduleSync();
   }
   return { renamed, merged };
+}
+
+/**
+ * プロジェクト内で active タスクを手動並べ替えする。
+ * effective = sort_order ?? created_at（表示は降順＝大きいほど上）。
+ * 通常は移動した 1 行だけ sort_order を隣接の中間値へ書き換える（sync churn・LWW 交錯を最小化）。
+ *  - aboveId: 移動後に自分の 1 つ上に来るタスク（＝より大きい effective）。先頭へ移すなら null。
+ *  - belowId: 移動後に自分の 1 つ下に来るタスク（＝より小さい effective）。末尾へ移すなら null。
+ * float 精度が枯渇して中間値が隣接と重なる稀ケースのみ、当該プロジェクト active を全件リナンバーする。
+ */
+export async function reorderTask(
+  movedId: string,
+  aboveId: string | null,
+  belowId: string | null,
+): Promise<void> {
+  // 注意: このトランザクション内に非 Dexie の await を足さないこと（途中オートコミットで破損する）。
+  await db.transaction('rw', db.tasks, async () => {
+    const moving = await db.tasks.get(movedId);
+    if (!moving || moving.status !== 'active') return;
+    const above = aboveId ? await db.tasks.get(aboveId) : undefined;
+    const below = belowId ? await db.tasks.get(belowId) : undefined;
+
+    let next: number;
+    if (!above && !below) return; // 単独タスク → 変更不要
+    else if (!above) next = taskOrderKey(below!) + REORDER_STEP; // 先頭へ（より大きく＝上）
+    else if (!below) next = taskOrderKey(above!) - REORDER_STEP; // 末尾へ（より小さく＝下）
+    else next = (taskOrderKey(above!) + taskOrderKey(below!)) / 2; // 中間
+
+    const collides =
+      !Number.isFinite(next) ||
+      (above && next >= taskOrderKey(above)) ||
+      (below && next <= taskOrderKey(below));
+    if (collides) {
+      await renumberActive(moving.project_name, movedId, aboveId, belowId);
+      return;
+    }
+    await db.tasks.put({ ...moving, sort_order: next, updated_at: Date.now() }); // 1 行のみ
+  });
+  scheduleSync();
+}
+
+/**
+ * fractional 採番の精度枯渇時の防御的フォールバック。当該プロジェクトの active を
+ * 「移動反映後の順序」で等間隔整数に振り直す（表示は降順なので index0 が最大値）。
+ * null プロジェクト対応のためメモリフィルタで集める。reorderTask のトランザクション内で呼ぶ想定。
+ * 稀にしか発生しないが、実行時は当該プロジェクト active 全件の updated_at を更新するため、
+ * 次回 push でそれら全件が同期対象になる。
+ */
+async function renumberActive(
+  projectName: string | null,
+  movedId: string,
+  aboveId: string | null,
+  belowId: string | null,
+): Promise<void> {
+  const actives = (await db.tasks.where('status').equals('active').toArray())
+    .filter((t) => t.project_name === projectName)
+    .sort((a, b) => taskOrderKey(b) - taskOrderKey(a)); // 現在の表示順（降順）
+  const moving = actives.find((t) => t.id === movedId);
+  if (!moving) return;
+  const rest = actives.filter((t) => t.id !== movedId);
+
+  let insertAt: number;
+  if (aboveId) {
+    const i = rest.findIndex((t) => t.id === aboveId);
+    insertAt = i >= 0 ? i + 1 : 0;
+  } else if (belowId) {
+    const i = rest.findIndex((t) => t.id === belowId);
+    insertAt = i >= 0 ? i : rest.length;
+  } else {
+    insertAt = 0;
+  }
+  const ordered = [...rest.slice(0, insertAt), moving, ...rest.slice(insertAt)];
+
+  const base = Date.now();
+  const topValue = ordered.length * REORDER_STEP;
+  const updated = ordered.map((t, i) => ({
+    ...t,
+    sort_order: topValue - i * REORDER_STEP, // index0（最上部）が最大
+    updated_at: base + i, // 距離のある distinct な値にして sync/LWW のタイを避ける
+  }));
+  await db.tasks.bulkPut(updated);
 }
 
 function newCompletionLog(taskId: string, completedAt: number): CompletionLog {

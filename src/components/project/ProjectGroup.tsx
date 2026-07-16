@@ -1,8 +1,26 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Inbox, MoreVertical, Pencil } from 'lucide-react';
+import {
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { TaskCard } from '@/components/task/TaskCard';
+import { SortableTaskCard } from '@/components/task/SortableTaskCard';
 import { RenameProjectDialog } from './RenameProjectDialog';
 import { sortTasksInGroup } from '@/lib/sort';
+import { reorderTask } from '@/lib/taskRepo';
 import { useFlipReorder } from '@/hooks/useFlipReorder';
 import { isExpanded, toggleExpanded } from '@/lib/projectExpansion';
 import type { Task } from '@/types';
@@ -20,8 +38,21 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
   const [open, setOpen] = useState<boolean>(() => isExpanded(name));
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  // ドラッグ確定直後の楽観的 active 並び順。DB(live query)が追いつくまでの一瞬だけ使い、
+  // スナップバック/二重アニメを防ぐ。DB 由来の並びが変わったら破棄する（下の effect で reconcile）。
+  const [overrideActiveIds, setOverrideActiveIds] = useState<string[] | null>(null);
+  const overrideBaseRef = useRef<string>('');
   const listRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // マウス=8px ドラッグで即開始 / タッチ=200ms 長押しで開始（スクロール誤爆を避ける） / キーボード対応。
+  // PointerSensor はタッチでも即発火し長押しを無効化するため使わない。
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     const handler = () => setOpen(isExpanded(name));
@@ -50,14 +81,55 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
 
   const isUncategorized = name === null;
 
-  // 新しく作ったタスクは常に最上部、完了は最下部（完了が新しいものほど下）に並べる
+  // active は effective 降順（手動並べ替え可）、completed は達成順（最初の完了が最下部）に並べる。
   const ordered = sortTasksInGroup(tasks);
+  const activeTasks = ordered.filter((t) => t.status === 'active');
   const completedTasks = ordered.filter((t) => t.status === 'completed');
+  const sortedActiveIds = activeTasks.map((t) => t.id);
+  const activeIdsKey = sortedActiveIds.join('|');
 
-  // 並び順が変わったとき、各カードを旧位置→新位置へ FLIP スライドで補間する
+  // 楽観的 override は「id 集合が一致するとき」だけ採用する（完了/新規で集合が変わったら無視）。
+  const overrideUsable =
+    overrideActiveIds !== null &&
+    overrideActiveIds.length === sortedActiveIds.length &&
+    overrideActiveIds.every((id) => sortedActiveIds.includes(id));
+  const displayActiveIds = overrideUsable ? (overrideActiveIds as string[]) : sortedActiveIds;
+
+  const activeById = new Map(activeTasks.map((t) => [t.id, t]));
+  const displayActive = displayActiveIds.map((id) => activeById.get(id)).filter(Boolean) as Task[];
+
+  // DB 由来の active 並びが override 設定時から変わったら（＝永続化が反映された）override を破棄する。
+  useEffect(() => {
+    if (overrideActiveIds === null) return;
+    if (activeIdsKey !== overrideBaseRef.current) setOverrideActiveIds(null);
+  }, [activeIdsKey, overrideActiveIds]);
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    setIsDragging(false);
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const current = displayActiveIds;
+    const oldIndex = current.indexOf(active.id as string);
+    const newIndex = current.indexOf(over.id as string);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const newArr = arrayMove(current, oldIndex, newIndex);
+    // 楽観的に即描画（この時点の DB 順をスナップショットして reconcile 基準にする）。
+    overrideBaseRef.current = activeIdsKey;
+    setOverrideActiveIds(newArr);
+    // moved は newArr[newIndex]。表示は降順なので above=1つ上(より大)、below=1つ下(より小)。
+    const aboveId = newIndex > 0 ? newArr[newIndex - 1] : null;
+    const belowId = newIndex < newArr.length - 1 ? newArr[newIndex + 1] : null;
+    // 永続化に失敗したら楽観 override を捨てて DB の並び（＝元の順）へ戻す。
+    void reorderTask(active.id as string, aboveId, belowId).catch(() => setOverrideActiveIds(null));
+  };
+
+  // 完了で沈む等の非ドラッグ変化のみ FLIP で補間する。
+  // ドラッグ中〜ドロップ確定（override が生きている間）は @dnd-kit の settle に一任し、
+  // FLIP を止めて transform の奪い合い・二重アニメを避ける。
   useFlipReorder(
     listRef,
-    ordered.map((t) => t.id),
+    [...displayActiveIds, ...completedTasks.map((t) => t.id)],
+    !isDragging && overrideActiveIds === null,
   );
 
   return (
@@ -133,7 +205,22 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
 
       {open && (
         <div ref={listRef} className="space-y-2.5">
-          {ordered.map((t) => (
+          {/* active のみドラッグ並べ替え可。DndContext/SortableContext は DOM を描かないので
+              listRef 直下は data-task-id を持つカード群のまま（FLIP 無傷）。completed はその外。 */}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => setIsDragging(true)}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setIsDragging(false)}
+          >
+            <SortableContext items={displayActiveIds} strategy={verticalListSortingStrategy}>
+              {displayActive.map((t) => (
+                <SortableTaskCard key={t.id} task={t} onEdit={onEdit} />
+              ))}
+            </SortableContext>
+          </DndContext>
+          {completedTasks.map((t) => (
             <TaskCard key={t.id} task={t} onEdit={onEdit} />
           ))}
         </div>

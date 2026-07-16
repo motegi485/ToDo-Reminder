@@ -44,7 +44,8 @@
 - **定量タスク**：「30 ページ読む」「10km 走る」など、目標値に対する進捗を加算で記録できる。チェックボックス＝「進捗を記録」モーダル（delta 加算）／数値タップ＝直接書き換え。
 - **プロジェクト分類**：プロジェクト名でグルーピング。展開／折り畳み状態を端末ごとに保持。作成後もプロジェクトヘッダーの「…」メニューからいつでも名前を変更できる（既存の別名と同名にすると1つに統合される。統合になる場合は保存前にダイアログ内で警告表示）。
 - **繰り返しタスク**：daily / weekly / monthly。完了してもタスクは消えず、カレンダー境界（毎日 0:00／毎週月曜 0:00／毎月 1 日 0:00）を跨ぐと自動で未完了へ「復活」する（定量タスクは現在値が 0 にリセット）。期限と繰り返しは排他。完了は `completions` ストアに履歴として残し、レポートへ反映（visibilitychange / 定期実行でも再評価）。
-- **表示順設定**：作成日時（新しい/古い順）、タスク数（少ない/多い順）、名前（五十音順）の 5 種。プロジェクトの表示順に反映される（プロジェクト内のタスクは常に新しい順で先頭に追加され、完了タスクは下部へ沈む固定順）。タスクの完了・削除で件数などが同点になった場合は、意図しない並び替えに見えないよう前回の表示順を維持する。「その他」（未分類）は設定に関わらず常に最下部。ネイティブ OS の `<select>` で選択。
+- **表示順設定**：作成日時（新しい/古い順）、タスク数（少ない/多い順）、名前（五十音順）の 5 種。**この設定はプロジェクト（グループ）の表示順のみに反映される**。タスクの完了・削除で件数などが同点になった場合は、意図しない並び替えに見えないよう前回の表示順を維持する。「その他」（未分類）は設定に関わらず常に最下部。ネイティブ OS の `<select>` で選択。
+- **タスクの並び順（プロジェクト内）**：未完了タスクは**ドラッグで手動並べ替え可能**（`@dnd-kit`。デスクトップ＝8px ドラッグ／モバイル＝200ms 長押しで開始。プロジェクト内限定・跨ぎ不可、「その他」でも可）。手動順は `sort_order`（表示は降順＝大きいほど上）に 1 行だけ隣接中間値を書いて永続化し、既存の同期パイプラインにそのまま乗る（未設定は `created_at` にフォールバック＝従来の並びと一致。マイグレーション不要）。**新規タスクは常に最上部**に追加される。完了タスクは未完了の下に、**最新完了が上・最初に完了したものが最下部**の順で並ぶ（プロジェクト統合時、統合されたタスクの完了は達成時刻が更新され統合先の既存完了より上に来る）。
 - **チェックボックス色**：タスクごとにアクセント色を選択できる（15 色 + 「自動」）。既定はスレート（灰色）。「自動」を選ぶと種類×期限で配色（`src/lib/taskColors.ts` / `migrations/0005_add_color.sql`。サーバーは色を解釈せず素通しで同期）。
 - **ソフト削除**：deleted 状態として保持し、365 日後にクリーンアップ Cron で物理削除。
 
@@ -74,7 +75,7 @@
 - iOS / Android 用 PWA 案内モーダル（共通フラグ `todo_ios_pwa_dismissed` で 1 回 dismiss）
 - ハプティクス（対応端末のみ）
 - 楽観的 UI 更新（Dexie の `useLiveQuery` で即時反映）
-- 並べ替えアニメーション（`useFlipReorder` の FLIP。`prefers-reduced-motion` を尊重）
+- 並べ替えアニメーション：ドラッグ中の押しのけは `@dnd-kit`、完了で沈む等の非ドラッグ変化は `useFlipReorder` の FLIP が担当（どちらも `prefers-reduced-motion` を尊重）
 - ソート・プロジェクト選択はネイティブ OS の `<select>` を採用（端末標準のピッカーで操作）
 - フィードバック導線（設定画面から Google フォームへ。`FEEDBACK_FORM_URL` 未設定時はボタン無効）
 
@@ -91,6 +92,7 @@
 | ルーティング | React Router 6 |
 | スタイル | Tailwind CSS 3.4（ダークモード `class` 戦略） |
 | アイコン | lucide-react |
+| ドラッグ並べ替え | [@dnd-kit](https://dndkit.com/)（core / sortable / utilities。タスクカードの手動並べ替え） |
 | ローカル DB | [Dexie 4](https://dexie.org/)（IndexedDB ラッパ） + dexie-react-hooks |
 | PWA | vite-plugin-pwa（`injectManifest` 戦略） |
 
@@ -225,7 +227,7 @@
 `migrations/0001_initial.sql`：
 
 - `users(sync_code PK, push_subscription, updated_at)`（`push_subscription` 列は 0006 以降 deprecated・未使用）
-- `tasks(id PK, sync_code FK, title, type, status, current_value, target_value, due_date, reminder_offset, reminder_time, recurrence_rule, project_name, sort_order, created_at, updated_at)`
+- `tasks(id PK, sync_code FK, title, type, status, current_value, target_value, due_date, reminder_offset, reminder_time, recurrence_rule, project_name, sort_order, created_at, updated_at)`（`sort_order` は未完了タスクの手動並べ替え順＝表示は降順・未設定は `created_at` にフォールバック。サーバーは解釈せず素通しで同期。値は fractional のため INTEGER 列でも SQLite の型アフィニティにより REAL で保持され得る）
 - インデックス：`reminder_time`（active のみ。0006 で置き換え）／`(sync_code, status, updated_at)`／`(sync_code, project_name, status)`
 
 `migrations/0002_add_server_seq.sql`：
