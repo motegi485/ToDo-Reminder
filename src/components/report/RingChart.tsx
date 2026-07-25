@@ -1,3 +1,5 @@
+import { CalendarCheck } from 'lucide-react';
+
 interface Props {
   rate: number;
   completed: number;
@@ -25,7 +27,10 @@ export function RingChart({ rate, completed, total }: Props) {
         />
       </svg>
       <div>
-        <div className="text-xs text-slate-500">今週の完了率</div>
+        <div className="flex items-center gap-1.5 text-xs text-slate-500">
+          <CalendarCheck aria-hidden className="h-4 w-4 shrink-0 text-brand-600 dark:text-brand-300" />
+          今週の完了率
+        </div>
         <div className="text-2xl font-semibold tabular-nums">{Math.round(rate)}%</div>
         <div className="text-xs text-slate-500">
           {completed} / {total} 件

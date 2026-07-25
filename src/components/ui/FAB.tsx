@@ -15,7 +15,7 @@ export function FAB({ onClick, label = 'タスクを追加' }: Props) {
         haptic('select');
         onClick();
       }}
-      className="fixed z-20 fab-bottom-safe right-4 lg:bottom-8 lg:right-8 w-14 h-14 rounded-full bg-slate-900 text-white shadow-lg shadow-slate-900/30 flex items-center justify-center active:scale-95 transition-transform dark:bg-slate-100 dark:text-slate-900"
+      className="fixed z-20 fab-bottom-safe right-4 lg:bottom-8 lg:right-8 w-14 h-14 rounded-full bg-brand-600 text-white shadow-lg shadow-brand-900/30 flex items-center justify-center active:scale-95 transition-transform dark:bg-brand-400 dark:text-slate-900"
     >
       <Plus className="h-7 w-7" />
     </button>

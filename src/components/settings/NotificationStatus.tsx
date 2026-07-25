@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Bell } from 'lucide-react';
 import { requestNotificationPermission, subscribePush } from '@/lib/notifyClient';
 
 type Permission = 'granted' | 'denied' | 'default' | 'unsupported';
@@ -36,7 +37,12 @@ export function NotificationStatus() {
 
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-      <h2 className="text-sm font-semibold">通知</h2>
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 flex items-center justify-center shrink-0">
+          <Bell aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+        </div>
+        <h2 className="text-sm font-semibold">通知</h2>
+      </div>
       <div className="text-sm">
         通知の許可状態: <span className="font-medium">{LABELS[perm]}</span>
       </div>
@@ -44,7 +50,7 @@ export function NotificationStatus() {
         <button
           type="button"
           onClick={handleRequest}
-          className="px-3 py-2 rounded-lg text-sm bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+          className="px-3 py-2 rounded-lg text-sm bg-brand-600 text-white dark:bg-brand-400 dark:text-slate-900"
         >
           通知を許可
         </button>

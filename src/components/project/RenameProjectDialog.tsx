@@ -92,7 +92,7 @@ export function RenameProjectDialog({ open, currentName, onClose }: Props) {
             type="button"
             disabled={!canSave}
             onClick={() => void handleSave()}
-            className="px-3 py-1.5 rounded-lg text-sm text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="px-3 py-1.5 rounded-lg text-sm text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-brand-400 dark:text-slate-900 dark:hover:bg-brand-300"
           >
             {willMerge ? '統合する' : '保存'}
           </button>

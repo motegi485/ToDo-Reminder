@@ -57,7 +57,7 @@ export function DueDateSheet({ open, onClose, task }: Props) {
             type="button"
             disabled={!canSave}
             onClick={() => void commit(draft)}
-            className="px-5 py-3.5 rounded-lg text-base font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="px-5 py-3.5 rounded-lg text-base font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-brand-400 dark:text-slate-900 dark:hover:bg-brand-300"
           >
             保存
           </button>
