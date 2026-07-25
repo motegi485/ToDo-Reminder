@@ -69,7 +69,20 @@ export function TaskCard({
   const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
   // 完了タスクは overdue 扱いしない（テキストの「期限切れ」も赤配色も未完了限定。§4.2）。
   const due = task.due_date ? formatDuePill(task.due_date, new Date(), !completed) : null;
-  const dueOverdue = !!due?.overdue;
+  const dueToneClass = due
+    ? {
+        overdue: 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400',
+        today: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400',
+        normal: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+      }[due.tone]
+    : '';
+  const dueToneHoverClass = due
+    ? {
+        overdue: 'hover:bg-red-100 dark:hover:bg-red-950/60',
+        today: 'hover:bg-amber-100 dark:hover:bg-amber-950/60',
+        normal: 'hover:bg-slate-200 dark:hover:bg-slate-700',
+      }[due.tone]
+    : '';
   const recurrenceLabel = task.recurrence_rule
     ? { daily: '毎日', weekly: '毎週', monthly: '毎月' }[task.recurrence_rule.type]
     : null;
@@ -258,9 +271,7 @@ export function TaskCard({
             className={[
               'mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
               'text-[0.75rem] tabular-nums whitespace-nowrap',
-              dueOverdue
-                ? 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400'
-                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+              dueToneClass,
               completed ? 'opacity-60' : '',
             ].join(' ')}
           >
@@ -281,9 +292,8 @@ export function TaskCard({
               'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
               // 当たり判定を縦にわずかに広げる（見た目は不変）
               "before:absolute before:-inset-y-1.5 before:-inset-x-0.5 before:content-['']",
-              dueOverdue
-                ? 'bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
+              dueToneClass,
+              dueToneHoverClass,
               completed ? 'opacity-60' : '',
             ].join(' ')}
           >

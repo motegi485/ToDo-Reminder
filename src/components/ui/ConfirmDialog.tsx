@@ -39,7 +39,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             className={[
               'px-3 py-1.5 rounded-lg text-sm text-white',
-              destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200',
+              destructive ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700 dark:bg-brand-400 dark:text-slate-900 dark:hover:bg-brand-300',
             ].join(' ')}
           >
             {confirmLabel}

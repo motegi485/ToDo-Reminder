@@ -15,6 +15,9 @@ interface Props {
   open: boolean;
   onClose: () => void;
   editing?: Task | null;
+  // 単一プロジェクトで絞り込み中に FAB から新規作成した場合のプロジェクト名初期値。
+  // editing が無い（新規作成）ときのみ適用する（既存タスクの編集時には絶対に使わない）。
+  initialProject?: string | null;
 }
 
 const TYPE_OPTIONS = [
@@ -65,7 +68,7 @@ function defaultReminderAt(): string {
   return d.toISOString();
 }
 
-export function TaskFormDialog({ open, onClose, editing }: Props) {
+export function TaskFormDialog({ open, onClose, editing, initialProject }: Props) {
   const [values, setValues] = useState<FormValues>(emptyValues);
   const [submitting, setSubmitting] = useState(false);
   // 編集ダイアログを開いた時点の DB 上の絶対時刻リマインダー（非繰り返しのみ）。
@@ -76,12 +79,14 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
 
   useEffect(() => {
     if (open) {
-      setValues(editing ? fromTask(editing) : emptyValues());
+      setValues(
+        editing ? fromTask(editing) : { ...emptyValues(), project_name: initialProject ?? null },
+      );
       setInitialReminderAt(editing && !editing.recurrence_rule ? editing.reminder_time : null);
       setRevalidateTick(0);
       setSubmitting(false);
     }
-  }, [open, editing]);
+  }, [open, editing, initialProject]);
 
   const errors = useMemo(
     () => validateForm(values, Date.now(), initialReminderAt),
@@ -190,7 +195,7 @@ export function TaskFormDialog({ open, onClose, editing }: Props) {
             type="button"
             disabled={!canSubmit}
             onClick={handleSubmit}
-            className="px-5 py-3.5 rounded-lg text-base font-medium bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
+            className="px-5 py-3.5 rounded-lg text-base font-medium bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-brand-400 dark:text-slate-900 dark:hover:bg-brand-300"
           >
             {editing ? '保存' : '追加'}
           </button>

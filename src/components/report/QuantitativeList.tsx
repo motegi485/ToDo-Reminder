@@ -1,3 +1,4 @@
+import { Target } from 'lucide-react';
 import { accentForTask } from '@/components/task/accentColor';
 import type { Task } from '@/types';
 
@@ -24,7 +25,10 @@ export function QuantitativeList({ tasks }: Props) {
 
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-4">
-      <div className="text-xs text-slate-500">定量タスクの進捗</div>
+      <div className="flex items-center gap-1.5 text-xs text-slate-500">
+        <Target aria-hidden className="h-4 w-4 shrink-0 text-brand-600 dark:text-brand-300" />
+        定量タスクの進捗
+      </div>
       {Array.from(groups.entries()).map(([projectName, arr]) => (
         <div key={projectName} className="space-y-2">
           <div className="text-sm font-medium text-slate-700 dark:text-slate-200">{projectName}</div>

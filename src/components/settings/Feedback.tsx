@@ -1,3 +1,4 @@
+import { MessageSquare } from 'lucide-react';
 import { CONSTANTS } from '@/lib/constants';
 
 export function Feedback() {
@@ -6,7 +7,12 @@ export function Feedback() {
 
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-      <h2 className="text-sm font-semibold">フィードバック</h2>
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 flex items-center justify-center shrink-0">
+          <MessageSquare aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+        </div>
+        <h2 className="text-sm font-semibold">フィードバック</h2>
+      </div>
       <p className="text-xs text-slate-500">
         ご意見・ご要望はフォームからお寄せください。
       </p>

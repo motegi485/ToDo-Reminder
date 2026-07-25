@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Smartphone } from 'lucide-react';
 import { normalizeSyncCode, isValidSyncCode } from '@/lib/syncCode';
 import { showToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -37,7 +38,12 @@ export function SyncFromOtherDevice() {
 
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-      <h2 className="text-sm font-semibold">他端末と同期</h2>
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 flex items-center justify-center shrink-0">
+          <Smartphone aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+        </div>
+        <h2 className="text-sm font-semibold">他端末と同期</h2>
+      </div>
       <div className="text-xs text-slate-500">別端末のコードを入力</div>
       <div className="flex gap-2">
         <input
@@ -52,7 +58,7 @@ export function SyncFromOtherDevice() {
           type="button"
           onClick={handleSync}
           disabled={!valid || loading}
-          className="shrink-0 px-3 py-2 rounded-lg text-sm bg-slate-900 text-white disabled:opacity-40 disabled:cursor-not-allowed dark:bg-slate-100 dark:text-slate-900"
+          className="shrink-0 px-3 py-2 rounded-lg text-sm bg-brand-600 text-white disabled:opacity-40 disabled:cursor-not-allowed dark:bg-brand-400 dark:text-slate-900"
         >
           {loading ? '同期中...' : '同期する'}
         </button>

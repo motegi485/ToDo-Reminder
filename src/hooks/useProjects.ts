@@ -10,6 +10,7 @@ import type { SortOrder, Task } from '@/types';
 interface ProjectGroupData {
   name: string | null;
   tasks: Task[];
+  remaining: number;
 }
 
 interface GroupMeta {
@@ -74,7 +75,7 @@ export function useProjectGroups(): ProjectGroupData[] | undefined {
   });
 
   if (tasks === undefined) return undefined;
-  return groups.map(({ name, tasks }) => ({ name, tasks }));
+  return groups.map(({ name, tasks, remaining }) => ({ name, tasks, remaining }));
 }
 
 export function useProjectNames(): string[] {

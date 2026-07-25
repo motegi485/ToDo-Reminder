@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Database } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { showToast } from '@/components/ui/Toast';
 import { db } from '@/lib/db';
@@ -48,7 +49,12 @@ export function DataManagement() {
 
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
-      <h2 className="text-sm font-semibold">データ管理</h2>
+      <div className="flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 flex items-center justify-center shrink-0">
+          <Database aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+        </div>
+        <h2 className="text-sm font-semibold">データ管理</h2>
+      </div>
       <button
         type="button"
         onClick={() => setConfirm(true)}

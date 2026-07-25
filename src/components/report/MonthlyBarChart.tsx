@@ -1,3 +1,4 @@
+import { BarChart3 } from 'lucide-react';
 import type { DayCount } from '@/lib/reports';
 
 interface Props {
@@ -14,7 +15,10 @@ export function MonthlyBarChart({ data }: Props) {
 
   return (
     <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4">
-      <div className="text-xs text-slate-500 mb-2">過去 30 日の完了数</div>
+      <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-2">
+        <BarChart3 aria-hidden className="h-4 w-4 shrink-0 text-brand-600 dark:text-brand-300" />
+        過去 30 日の完了数
+      </div>
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="w-full h-32">
         {data.map((d, i) => {
           const h = (d.count / max) * chartH;
