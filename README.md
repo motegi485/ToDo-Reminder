@@ -169,7 +169,7 @@
     │   ├── layout/             Layout, Sidebar, BottomNav, OfflineBanner
     │   ├── task/               TaskCard, TaskFormDialog, QuantitativeProgress, RecurrenceField,
     │   │                       ReminderField, DueDateSheet, SortMenu, EmptyState, ColorPicker, accentColor.ts
-    │   ├── project/            ProjectGroup, ProjectInput, RenameProjectDialog
+    │   ├── project/            ProjectGroup, ProjectChips, ProjectInput, RenameProjectDialog
     │   ├── report/             RingChart, StreakCard, MonthlyBarChart, QuantitativeList
     │   ├── settings/           SyncCodeCard, SyncFromOtherDevice, NotificationStatus,
     │   │                       DisplaySettings, DataManagement, Feedback
@@ -427,7 +427,7 @@ GitHub 連携で CI/CD したい場合は、Cloudflare ダッシュボード →
 ## PWA・Service Worker
 
 ### マニフェスト（`public/manifest.webmanifest`）
-- `display: standalone`、`orientation: portrait`、`theme_color: #0f172a`
+- `display: standalone`、`orientation: portrait`、`theme_color: #3D7C77`
 - アイコンは 192 / 512 の 2 種類のみ（`purpose: any maskable` 兼用）。`apple-touch-icon` と通知 `badge` も `icon-192.png` を流用。
 
 ### Service Worker（`src/sw.ts`）
@@ -460,7 +460,7 @@ Push を購読していない環境向けに、起動中のクライアントが
 - `viewport-fit=cover` + Tailwind の `safe-top`（global.css 定義）でノッチ対応。
 
 ### Android
-- `mobile-web-app-capable` / `theme-color: #0f172a` を設定。
+- `mobile-web-app-capable` / `theme-color: #3D7C77` を設定。
 - Chrome のインストールプロンプトが標準で出る。
 
 ### レスポンシブ

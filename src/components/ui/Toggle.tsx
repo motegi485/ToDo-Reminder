@@ -16,7 +16,7 @@ export function Toggle({ checked, onChange, label, id }: Props) {
       onClick={() => onChange(!checked)}
       className={[
         'inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
-        checked ? 'bg-slate-900 dark:bg-slate-100' : 'bg-slate-300 dark:bg-slate-700',
+        checked ? 'bg-brand-600 dark:bg-brand-400' : 'bg-slate-300 dark:bg-slate-700',
       ].join(' ')}
     >
       <span

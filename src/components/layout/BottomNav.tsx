@@ -20,7 +20,7 @@ export function BottomNav() {
                 [
                   'flex flex-col items-center justify-center py-2 gap-0.5 text-xs transition-colors',
                   isActive
-                    ? 'text-slate-900 dark:text-white'
+                    ? 'text-brand-600 dark:text-brand-300'
                     : 'text-slate-500 dark:text-slate-400',
                 ].join(' ')
               }

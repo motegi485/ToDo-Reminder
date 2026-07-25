@@ -80,6 +80,12 @@
   .fab-bottom-safe {
     bottom: calc(5rem + env(safe-area-inset-bottom));
   }
+  .scrollbar-hide {
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* 通知タップで開いたタスクの強調表示（ListPage のディープリンク処理が付与） */

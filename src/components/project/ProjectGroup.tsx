@@ -30,11 +30,13 @@ interface Props {
   tasks: Task[];
   onEdit: (task: Task) => void;
   isFirstGroup: boolean;
+  /** 'accordion'（既定・現行動作） | 'filtered'（常時展開・chevron 非表示） */
+  variant?: 'accordion' | 'filtered';
 }
 
 const SYNC_EVENT = 'todo:project-states-changed';
 
-export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
+export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'accordion' }: Props) {
   const [open, setOpen] = useState<boolean>(() => isExpanded(name));
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -132,40 +134,62 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
     !isDragging && overrideActiveIds === null,
   );
 
+  const effectiveOpen = variant === 'filtered' ? true : open;
+
+  const nameContent = (
+    <>
+      {isUncategorized && (
+        <Inbox className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-400 dark:text-slate-500" />
+      )}
+      <span
+        className={
+          isUncategorized ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'
+        }
+      >
+        {name ?? 'その他'}
+      </span>
+    </>
+  );
+
   return (
     <section
-      className={`mt-7 first:mt-1 ${
-        isUncategorized && !isFirstGroup
-          ? 'pt-5 border-t border-dashed border-slate-200 dark:border-slate-700'
-          : ''
-      }`}
+      className={
+        variant === 'filtered'
+          ? ''
+          : `mt-7 first:mt-1 ${
+              isUncategorized && !isFirstGroup
+                ? 'pt-5 border-t border-dashed border-slate-200 dark:border-slate-700'
+                : ''
+            }`
+      }
     >
       <div className="flex items-center gap-1.5 px-0.5 pb-3">
-        <button
-          type="button"
-          onClick={handleToggle}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        >
-          <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
-            {isUncategorized && (
-              <Inbox className="h-[1.125rem] w-[1.125rem] shrink-0 text-slate-400 dark:text-slate-500" />
-            )}
-            <span
-              className={
-                isUncategorized ? 'text-slate-500 dark:text-slate-400' : 'text-slate-900 dark:text-slate-100'
-              }
-            >
-              {name ?? 'その他'}
+        {variant === 'filtered' ? (
+          <h2 className="flex min-w-0 flex-1 items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
+            {nameContent}
+            <span className="flex-1" />
+            <span className="text-sm font-normal text-slate-400 dark:text-slate-500">
+              {completedTasks.length}/{tasks.length}
             </span>
           </h2>
-          <ChevronDown
-            className={`h-5 w-5 shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-          />
-          <span className="flex-1" />
-          <span className="text-sm text-slate-400 dark:text-slate-500">
-            {completedTasks.length}/{tasks.length}
-          </span>
-        </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleToggle}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          >
+            <h2 className="flex items-center gap-1.5 text-[1.375rem] font-bold tracking-tight">
+              {nameContent}
+            </h2>
+            <ChevronDown
+              className={`h-5 w-5 shrink-0 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+            />
+            <span className="flex-1" />
+            <span className="text-sm text-slate-400 dark:text-slate-500">
+              {completedTasks.length}/{tasks.length}
+            </span>
+          </button>
+        )}
 
         {name !== null && (
           <div ref={menuRef} className="relative">
@@ -203,7 +227,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup }: Props) {
         )}
       </div>
 
-      {open && (
+      {effectiveOpen && (
         <div ref={listRef} className="space-y-2.5">
           {/* active のみドラッグ並べ替え可。DndContext/SortableContext は DOM を描かないので
               listRef 直下は data-task-id を持つカード群のまま（FLIP 無傷）。completed はその外。 */}

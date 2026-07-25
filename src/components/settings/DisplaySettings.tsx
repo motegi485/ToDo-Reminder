@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Palette } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -34,6 +35,12 @@ export function DisplaySettings() {
 
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-200 dark:divide-slate-800">
+      <div className="px-4 py-3 flex items-center gap-2">
+        <div className="h-8 w-8 rounded-full bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 flex items-center justify-center shrink-0">
+          <Palette aria-hidden className="h-[1.125rem] w-[1.125rem]" />
+        </div>
+        <h2 className="text-sm font-semibold">表示設定</h2>
+      </div>
       <div className="px-4 py-3 flex items-center justify-between">
         <div>
           <div className="text-sm font-medium">ダークモード</div>
