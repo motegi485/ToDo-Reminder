@@ -11,15 +11,27 @@ interface Props {
   task: Task;
 }
 
+// 期限の初期値: 今日の 23:59。
+// iOS Safari は値が空の datetime-local を「枠だけの空欄」として描画する
+// （Chrome の「年/月/日 --:--」に相当する書式ヒントもプレースホルダーも出ない）。
+// 三点メニューの「期限を設定」は due_date === null のタスクにしか出ないため、
+// そのまま開くと必ず空欄になり、日時欄だと分からない見た目になる。
+// リマインダー欄（TaskFormDialog の defaultReminderAt）と同じく初期値を必ず入れて防ぐ。
+function defaultDueDate(): string {
+  const d = new Date();
+  d.setHours(23, 59, 0, 0);
+  return d.toISOString();
+}
+
 // タスクカードから開く期限設定シート。期限は通知に関与しない表示専用メタデータのため、
 // リマインダー等は一切扱わず due_date だけを設定・削除する（min 制約なし＝過去も選べる）。
 export function DueDateSheet({ open, onClose, task }: Props) {
-  const [draft, setDraft] = useState<string | null>(task.due_date);
+  const [draft, setDraft] = useState<string | null>(() => task.due_date ?? defaultDueDate());
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setDraft(task.due_date);
+      setDraft(task.due_date ?? defaultDueDate());
       setSubmitting(false);
     }
   }, [open, task.due_date]);
