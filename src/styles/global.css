@@ -68,6 +68,17 @@
     max-width: 100%;
     min-width: 0;
   }
+
+  /* 上の appearance 解除は、iOS では値テキストを描画する内部要素
+     （::-webkit-date-and-time-value）がネイティブから受け取る高さも一緒に消すため、
+     値があるのに潰れて見えないことがある。高さを明示して防ぐ。
+     併せて他の入力欄と同じ左寄せに揃え、min-width も 0 にして枠のはみ出しを防ぐ。 */
+  input[type='datetime-local']::-webkit-date-and-time-value {
+    height: 1.5em;
+    margin: 0;
+    min-width: 0;
+    text-align: left;
+  }
 }
 
 @layer utilities {
