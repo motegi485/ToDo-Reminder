@@ -2,6 +2,8 @@ import type { Env } from '../lib/cors';
 import { sendWebPush } from '../lib/webpush';
 import { nextReminderAfter, parseRecurrenceType, periodStartMs } from '../lib/recurrence';
 import { CHUNK_SIZE, chunk } from '../lib/chunk';
+import { LIMITS } from '../lib/constants';
+import { sanitizeNotificationText } from '../lib/guard';
 
 interface NotifyRow {
   id: string;
@@ -174,7 +176,11 @@ export async function handleNotifyCron(
                 sub.subscription,
                 {
                   title: 'リマインダー',
-                  body: task.title,
+                  // 制御文字を潰し長さを切り詰める。Web Push の暗号化ペイロードは
+                  // 実質 4,096 バイトが上限で、超えると Push サービスが 413 を返す。
+                  // 413 は再試行しても直らないまま毎分の再送に化けるため、
+                  // 送信前に発生源を断つ。
+                  body: sanitizeNotificationText(task.title),
                   task_id: task.id,
                   due_date: task.due_date,
                 },
@@ -191,8 +197,10 @@ export async function handleNotifyCron(
           // 1 台にも届かず、かつ一時失敗（'failed'）が含まれる、または購読が
           // 0 件だった（EXISTS 判定後の削除競合など）場合は claim を取り下げて
           // 次分の実行で再試行する（繰り返しは RETRY_GRACE_SEC、単発は
-          // ONESHOT_CATCHUP_SEC の窓内）。全滅が expired のみなら再試行しても
-          // 届かないので claim は残す。一部の端末にだけ届いた場合は配信済みとして
+          // ONESHOT_CATCHUP_SEC の窓内）。全滅が expired / permanent のみなら
+          // 再試行しても届かないので claim は残す（'permanent' を再試行対象に
+          // 含めていたため、413 のような直らない失敗が単発では最大 1,440 回の
+          // 再送になっていた）。一部の端末にだけ届いた場合は配信済みとして
           // 扱う（sent_reminders はタスク単位のため端末単位の再送はしない）。
           const okCount = results.filter((r) => r.result === 'ok').length;
           const failedCount = results.filter((r) => r.result === 'failed').length;
@@ -237,6 +245,17 @@ export async function handleNotifyCron(
   // 次の周期の窓に乗らない。
   // 下限を候補クエリと同じ位置に置き、再試行中のリマインダーを先回りして
   // 進めてしまわないようにする。
+  //
+  // 対象は候補クエリと同じく「購読がある同期コード」に限る。購読が無ければ
+  // どのみち送信しないので前進させる意味がなく、購読を持たない繰り返しタスクが
+  // 毎分スキャンされ続けるだけになる（あとから購読すれば、その時点でこの
+  // クエリの対象になり滞留分がまとめて解消される）。
+  //
+  // LIMIT も必須。前進できない行（recurrence_rule の種別が不明・reminder_time の
+  // 書式が壊れている・offset が異常）は集合から永久に抜けないため、件数が増えると
+  // 1 回の cron が発行するクエリ数が青天井になり、D1 Free の「50 クエリ /
+  // Worker 呼び出し」を超えて cron 全体が毎分失敗する。書き込み側の検証
+  // （lww.ts の isValidPayload）と合わせて二重に塞ぐ。
   const stale = await env.DB.prepare(
     `SELECT t.id, t.reminder_time, t.reminder_offset, t.recurrence_rule, t.tz_offset
      FROM tasks t
@@ -245,9 +264,12 @@ export async function handleNotifyCron(
        AND t.reminder_offset IS NOT NULL
        AND t.tz_offset IS NOT NULL
        AND t.reminder_time IS NOT NULL
-       AND t.reminder_time < ?`,
+       AND t.reminder_time < ?
+       AND EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.sync_code = t.sync_code)
+     ORDER BY t.reminder_time
+     LIMIT ?`,
   )
-    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC))
+    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC), LIMITS.STALE_ADVANCE_LIMIT)
     .all<StaleRow>();
 
   ctx.waitUntil(
