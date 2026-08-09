@@ -2,7 +2,12 @@
 
 オフライン対応 PWA の ToDo + リマインダー。フロントエンド（React 18 + Vite 5 + Dexie/IndexedDB + vite-plugin-pwa）と Cloudflare バックエンド（Workers + D1 + Pages、Web Push、Cron Triggers）で構成。
 
-**README.md がアーキテクチャ・データモデル・同期/通知仕様・デプロイ手順の single source of truth。** 仕様・挙動に関わる変更をしたら、README の該当セクションも必ず同時に更新する。詳細はまず README を読むこと（このファイルには README に無い運用ルールと不変条件のみを書く）。
+**`docs/` がアーキテクチャ・データモデル・同期/通知仕様・デプロイ手順の single source of truth。** 作業前にまず `docs/README.md`（目次）と `docs/invariants.md`（壊してはいけない不変条件）を読むこと。仕様・挙動に関わる変更をしたら、`docs/` の該当ファイルも必ず同じコミットで更新する。
+
+- `README.md` はアプリの紹介・技術スタック・データの取り扱い・権利関係に絞ってある（利用者と外部向け）。設計の詳細は書かない。
+- **`docs/` は現在 git 追跡外**（`.gitignore` の `docs/`）。clone しただけでは手に入らない。追跡に切り替えるときは `.gitignore` から該当行を削除する。
+- `docs/` の数値の多くは 2026-08-09 の公開前監査でのローカル実測に基づく。監査報告書そのものは残存リスクの詳細を持つため公開リポジトリには残していない（結論と対策は `docs/security.md` に取り込み済み）。
+- **このファイルと `CLAUDE.md` は同一内容を保つこと**（対象エージェントが違うだけ）。片方を変えたらもう片方も変える。
 
 ## コマンド
 
@@ -10,6 +15,7 @@
 - `npm run typecheck` — フロント（`tsc -b`）と Workers（`tsc -p tsconfig.workers.json`）の両方を型チェック
 - `npm run build` — 上記 typecheck + vite build
 - 自動テスト・lint・CI は存在しない。変更後の検証は typecheck / build / 手動動作確認が基本
+- Workers / D1 / Cron を触ったら、D1 の消費量と外部 fetch 数まで実測できるローカルラボで確認する（組み方は `docs/local-verification.md`）
 
 ## コード規約（README に無い事実）
 
@@ -26,6 +32,8 @@
 - D1 マイグレーションは番号順に 1 ファイルずつ `--remote` 適用（`d1 migrations apply` は使わない）。スキーマ追加を伴うリリースは「マイグレーション適用 → Worker デプロイ」の順序必須
 
 ## 設計上の不変条件（変更時に壊さないこと）
+
+> 全 16 項目と「破ったときに何が起きるか」は `docs/invariants.md` にある。以下は特に踏みやすい 4 つの抜粋。
 
 - 繰り返しタスクの status 復活（completed→active）は**クライアント専任**。サーバー（Workers）から status を書き換えない（LWW 同期が乱れる）
 - 同期カーソルは push / pull で時計を分離（push=クライアント時計 `lastPushedAt`、pull=サーバー採番 `server_seq`）。混在させない

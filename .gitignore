@@ -20,9 +20,6 @@ dist-ssr/
 # Claude Code local settings (machine-specific permissions)
 .claude/settings.local.json
 
-# Claude Code project spec (local development only)
-SPEC_FOR_CLAUDE_CODE.md
-
 # Cloudflare Wrangler local secrets / config (use wrangler.toml.example as template)
 .dev.vars
 .dev.vars.*
@@ -30,3 +27,6 @@ wrangler.toml
 
 # D1 manual export (contains real user data)
 backup-*.sql
+
+# 設計ドキュメント（いったん追跡外。追跡に切り替えるときはこの行を削除する）
+docs/
