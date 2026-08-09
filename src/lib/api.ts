@@ -64,4 +64,9 @@ export const api = {
 
   pushSubscribe: (sync_code: string, subscription: PushSubscriptionJSON) =>
     apiFetch<{ ok: boolean }>('/api/push/subscribe', { sync_code, subscription }),
+
+  // この端末の購読だけをサーバーから削除する。サーバーは endpoint と sync_code の
+  // 両方を照合するため、他人の購読は消せない。
+  pushUnsubscribe: (sync_code: string, endpoint: string) =>
+    apiFetch<{ ok: boolean }>('/api/push/unsubscribe', { sync_code, endpoint }),
 };

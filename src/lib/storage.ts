@@ -10,6 +10,7 @@ type StorageKey =
   | 'todo_last_synced_at'
   | 'todo_last_pushed_at'
   | 'todo_notified_reminders'
+  | 'todo_push_disabled'
   | 'todo_ios_pwa_dismissed';
 
 function read(key: StorageKey): string | null {
@@ -125,6 +126,16 @@ export const storage = {
   },
   setNotifiedReminders(map: Record<string, number>): void {
     write('todo_notified_reminders', JSON.stringify(map));
+  },
+
+  // この端末で Push 通知を止めているか。ブラウザの通知許可とは別軸のフラグ。
+  // アプリは起動のたびに購読を張り直す（自己修復）ため、これが無いと
+  // 「通知を停止」しても次回起動で復活してしまう。
+  getPushDisabled(): boolean {
+    return read('todo_push_disabled') === 'true';
+  },
+  setPushDisabled(value: boolean): void {
+    write('todo_push_disabled', String(value));
   },
 
   getIosPwaDismissed(): boolean {
