@@ -1,4 +1,5 @@
 import { CHUNK_SIZE, chunk } from './chunk';
+import { ISO_INSTANT_RE, LIMITS, RECURRENCE_TYPES } from './constants';
 
 interface TaskRow {
   id: string;
@@ -30,6 +31,8 @@ interface LWWResult {
   conflicts: Array<{ id: string; server_updated_at: number }>;
   // 他の同期コードが所有する既存行への書き込みを拒否した件数。
   skipped: number;
+  // バリデーションを通らず保存しなかった件数。サイレントに落ちると気づけないため返す。
+  invalid: number;
 }
 
 function payloadToRow(task: TaskPayload): TaskRow {
@@ -83,21 +86,84 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
 const TASK_TYPES = new Set(['simple', 'quantitative']);
 const TASK_STATUSES = new Set(['active', 'completed', 'deleted']);
 
+/** null 許容の有限数。範囲指定があれば範囲も見る。 */
+function isNullableNumber(v: unknown, min?: number, max?: number): boolean {
+  if (v == null) return true;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return false;
+  if (min != null && v < min) return false;
+  if (max != null && v > max) return false;
+  return true;
+}
+
+/** null 許容の文字列。長さ上限つき。 */
+function isNullableString(v: unknown, maxLength: number): boolean {
+  return v == null || (typeof v === 'string' && v.length <= maxLength);
+}
+
 /**
- * upsert 前の最小バリデーション。1 件の壊れたペイロードで batch 全体（= 同期）が
- * 失敗しないよう、要件を満たさない行は黙ってスキップする。
- * D1 の CHECK/NOT NULL 制約に引っかかる値を事前に弾くのが主目的。
+ * upsert 前のバリデーション。1 件の壊れたペイロードで batch 全体（= 同期）が
+ * 失敗しないよう、要件を満たさない行は保存せずスキップする（件数は `invalid` で返す）。
+ *
+ * 検証しているのは 3 種類:
+ *  1. **型** — object / array を D1 の bind に渡すと例外が飛び、batch ごと失敗して
+ *     リクエスト全体が 500 になる（＝同送した正常な行も巻き添えになる）。上記の
+ *     設計意図を実際に成立させるには型検証が要る。
+ *  2. **長さ** — 上限が無いと 1 リクエストで数 MB を書き込めてしまい、D1 の
+ *     ストレージ枠（Free は 1DB 500MB）を少ない書き込み行数で埋められる。
+ *  3. **書式・範囲** — `reminder_time` の ISO 書式と `recurrence_rule.type` は、
+ *     cron の「取りこぼし回収」が行を前進させられるかどうかを決める。崩れた値が
+ *     入るとその行は回収対象から永久に抜けず、毎分スキャンされ続ける。
+ *     `reminder_offset` / `tz_offset` の異常値も同様に前進計算を壊す。
  */
-function isValidPayload(t: TaskPayload): boolean {
-  return (
-    typeof t.id === 'string' &&
-    t.id.length > 0 &&
-    typeof t.title === 'string' &&
-    TASK_TYPES.has(t.type) &&
-    TASK_STATUSES.has(t.status) &&
-    Number.isFinite(t.created_at) &&
-    Number.isFinite(t.updated_at)
-  );
+function isValidPayload(t: TaskPayload, nowMs: number): boolean {
+  if (typeof t.id !== 'string' || t.id.length === 0 || t.id.length > LIMITS.ID_MAX_LENGTH) {
+    return false;
+  }
+  if (typeof t.title !== 'string' || t.title.length > LIMITS.TITLE_MAX_LENGTH) return false;
+  if (!TASK_TYPES.has(t.type) || !TASK_STATUSES.has(t.status)) return false;
+
+  // 未来に寄りすぎた時刻は LWW で二度と上書きできず、cleanup の updated_at 条件にも
+  // 該当しなくなる（= 消せない行）。端末の時計ずれは 366 日まで許容する。
+  const maxTime = nowMs + LIMITS.CLOCK_SKEW_TOLERANCE_MS;
+  if (!isNullableNumber(t.created_at, 0, maxTime) || t.created_at == null) return false;
+  if (!isNullableNumber(t.updated_at, 0, maxTime) || t.updated_at == null) return false;
+
+  if (!isNullableNumber(t.current_value) || !isNullableNumber(t.target_value)) return false;
+  if (!isNullableNumber(t.sort_order)) return false;
+  if (!isNullableNumber(t.tz_offset, LIMITS.TZ_OFFSET_MIN, LIMITS.TZ_OFFSET_MAX)) return false;
+  if (
+    !isNullableNumber(t.reminder_offset, LIMITS.REMINDER_OFFSET_MIN, LIMITS.REMINDER_OFFSET_MAX)
+  ) {
+    return false;
+  }
+
+  if (!isNullableString(t.due_date, LIMITS.DUE_DATE_MAX_LENGTH)) return false;
+  if (!isNullableString(t.project_name, LIMITS.PROJECT_NAME_MAX_LENGTH)) return false;
+  if (!isNullableString(t.color, LIMITS.COLOR_MAX_LENGTH)) return false;
+
+  // reminder_time は Date.toISOString() の出力そのものだけを許す。
+  // cron の候補クエリは辞書順比較でインデックスを使うため、書式が崩れると
+  // 順序が壊れ、その行は回収からも抜けなくなる（migrations/0006 のコメント参照）。
+  if (t.reminder_time != null) {
+    if (typeof t.reminder_time !== 'string' || !ISO_INSTANT_RE.test(t.reminder_time)) return false;
+  }
+
+  if (t.recurrence_rule != null) {
+    const rule = t.recurrence_rule as { type?: unknown };
+    if (typeof rule !== 'object' || Array.isArray(rule)) return false;
+    // 種別はサーバーの recurrence.ts が解釈できるものに限る。解釈できない値が入ると
+    // 前進計算が no-op になり、行が取りこぼし回収から永久に抜けなくなる。
+    if (typeof rule.type !== 'string' || !RECURRENCE_TYPES.has(rule.type)) return false;
+    let json: string;
+    try {
+      json = JSON.stringify(t.recurrence_rule);
+    } catch {
+      return false; // 循環参照・深すぎるネストなど
+    }
+    if (json.length > LIMITS.RECURRENCE_RULE_MAX_BYTES) return false;
+  }
+
+  return true;
 }
 
 export async function applyLWW(
@@ -108,10 +174,17 @@ export async function applyLWW(
   // これと一致する場合に限り、行を新コードへ「移動」する書き込みを許可する。
   previousSyncCode: string | null,
 ): Promise<LWWResult> {
-  const result: LWWResult = { accepted: 0, conflicts: [], skipped: 0 };
+  const result: LWWResult = { accepted: 0, conflicts: [], skipped: 0, invalid: 0 };
 
-  // sync_code 一致かつ最小要件を満たす行だけ対象にする。
-  const valid = tasks.filter((t) => t.sync_code === syncCode && isValidPayload(t));
+  // sync_code 一致かつ要件を満たす行だけ対象にする。
+  // 自コード宛として送られてきたのに要件を満たさなかったものは `invalid` として数える
+  // （黙って落とすと、クライアント側からはデータが消えたようにしか見えないため）。
+  const validationNow = Date.now();
+  const own = tasks.filter(
+    (t) => t != null && typeof t === 'object' && t.sync_code === syncCode,
+  );
+  const valid = own.filter((t) => isValidPayload(t, validationNow));
+  result.invalid = own.length - valid.length;
   if (valid.length === 0) return result;
 
   // 既存行の updated_at と所有コードを取得（バインド上限のためチャンク分割）。
