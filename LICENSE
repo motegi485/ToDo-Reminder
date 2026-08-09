@@ -1,0 +1,40 @@
+Copyright (c) 2026 motegi485
+
+All Rights Reserved.
+
+本リポジトリに含まれるソースコード、ドキュメント、画像その他の著作物（以下「本ソフトウェア」）
+の著作権は著作者に帰属します。本ソフトウェアはオープンソースライセンスの下で提供されるもの
+ではありません。
+
+著作者の書面による事前の許諾なく、本ソフトウェアの全部または一部を、複製、改変、頒布、
+公衆送信、再ライセンス、販売することはできません。GitHub 上での閲覧および GitHub の
+利用規約に基づくフォークは、この制限の対象外とします。
+
+本ソフトウェアは現状有姿で提供され、明示黙示を問わずいかなる保証も伴いません。著作者は、
+本ソフトウェアの使用または使用不能から生じるいかなる損害についても責任を負いません。
+
+本ソフトウェアが利用しているサードパーティのオープンソースソフトウェアには、それぞれの
+ライセンスが適用されます。詳細は THIRD-PARTY-NOTICES.md を参照してください。
+
+---
+
+Copyright (c) 2026 motegi485
+
+All Rights Reserved.
+
+The source code, documentation, images and other works contained in this
+repository (the "Software") are the copyrighted property of the author. The
+Software is NOT offered under an open source license.
+
+No part of the Software may be copied, modified, distributed, publicly
+transmitted, sublicensed or sold without the prior written permission of the
+author. Viewing on GitHub and forking under the GitHub Terms of Service are
+excluded from this restriction.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+Third-party open source software used by the Software is governed by its own
+license. See THIRD-PARTY-NOTICES.md for details.
