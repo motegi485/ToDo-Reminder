@@ -111,33 +111,77 @@ async function push(syncCode: string, since: number): Promise<void> {
 // コードを切り替えたら再び出せるようにリセットする。
 let notAllowedNotified = false;
 
+type StepResult = { ok: true } | { ok: false; error: unknown };
+
+/** 例外を投げずに結果として返す。push の失敗で pull を巻き添えにしないために使う。 */
+async function step(fn: () => Promise<void>): Promise<StepResult> {
+  try {
+    await fn();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+/** そのコードが許可リストに無い（403）ことを示すエラーか。 */
+function isNotAllowed(result: StepResult): boolean {
+  return !result.ok && result.error instanceof ApiError && result.error.status === 403;
+}
+
 export async function runSync(): Promise<void> {
   if (!navigator.onLine) return;
   if (!import.meta.env.VITE_API_URL) return;
   const syncCode = storage.getSyncCode();
   if (!syncCode) return;
 
-  try {
-    // push カーソル(lastPushedAt)はクライアント時計、pull カーソル(lastSyncedAt)は
-    // サーバー採番の server_seq。両者は別物として管理する（時計混在を避ける）。
-    // push を pull より先に実行し、pull で取り込んだ行をそのまま push し返す無駄を避ける。
+  // push カーソル(lastPushedAt)はクライアント時計、pull カーソル(lastSyncedAt)は
+  // サーバー採番の server_seq。両者は別物として管理する（時計混在を避ける）。
+  // push を pull より先に実行し、pull で取り込んだ行をそのまま push し返す無駄を避ける。
+  //
+  // **push と pull は独立に実行する。** 以前は同じ try に入れていたため、push が
+  // 恒久的に失敗する状態（サーバー側バリデーションに引っかかるローカル行が残った、
+  // など）に陥ると pull まで到達せず、その端末が他端末の変更を一切受け取れない
+  // 片方向の同期停止に陥っていた。しかもユーザーには 5 分ごとのトーストしか見えず、
+  // 原因も回避策も分からない状態だった。
+  const pushResult = await step(async () => {
     const pushSince = storage.getLastPushedAt();
     const pushNow = Date.now();
     await push(syncCode, pushSince);
+    // 全チャンク成功したときだけカーソルを進める（途中失敗時は次回に全量再送）。
     storage.setLastPushedAt(pushNow);
-    await pull(syncCode);
-  } catch (err) {
-    console.warn('Sync failed:', err);
-    // 403 = この同期コードがサーバーの許可リストに載っていない。新規インストール直後は
-    // 端末が自分で生成した未登録コードを持っているため必ずこうなる。5 分ごとに
-    // 「同期に失敗しました」を出しても直しようがないので、案内は 1 度だけにする。
-    if (err instanceof ApiError && err.status === 403) {
-      if (!notAllowedNotified) {
-        notAllowedNotified = true;
-        showToast('この端末の同期コードは未登録です。設定から既存のコードを入力してください', 'warn');
-      }
-      return;
+  });
+
+  // 403 は「このコードは許可リストに無い」なので pull も同じ結果になる。
+  // 無駄な 1 リクエストを避けるためここで打ち切る。
+  const pullResult = isNotAllowed(pushResult)
+    ? pushResult
+    : await step(() => pull(syncCode));
+
+  if (pushResult.ok && pullResult.ok) return;
+
+  console.warn('Sync failed:', {
+    push: pushResult.ok ? 'ok' : pushResult.error,
+    pull: pullResult.ok ? 'ok' : pullResult.error,
+  });
+
+  // 403 = この同期コードがサーバーの許可リストに載っていない。新規インストール直後は
+  // 端末が自分で生成した未登録コードを持っているため必ずこうなる。5 分ごとに
+  // 「同期に失敗しました」を出しても直しようがないので、案内は 1 度だけにする。
+  if (isNotAllowed(pushResult) || isNotAllowed(pullResult)) {
+    if (!notAllowedNotified) {
+      notAllowedNotified = true;
+      showToast('この端末の同期コードは未登録です。設定から既存のコードを入力してください', 'warn');
     }
+    return;
+  }
+
+  // 片方だけ失敗したときは、どちら側が止まっているのかを伝える。
+  // 「送信できていない」と「受信できていない」では次にすべきことが違うため。
+  if (!pushResult.ok && pullResult.ok) {
+    showToast('変更をサーバーへ送れませんでした（受信は成功）', 'warn');
+  } else if (pushResult.ok && !pullResult.ok) {
+    showToast('サーバーから最新を取得できませんでした（送信は成功）', 'warn');
+  } else {
     showToast('同期に失敗しました', 'warn');
   }
 }
