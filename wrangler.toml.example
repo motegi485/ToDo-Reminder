@@ -14,5 +14,15 @@ database_id = "<your-d1-database-id>"
 crons = ["* * * * *", "0 3 * * *"]
 
 [vars]
-# 本番フロントのオリジンに合わせる
-ALLOWED_ORIGIN = "https://todo-reminder.pages.dev"
+# フロント（Pages）のオリジンに合わせる
+ALLOWED_ORIGIN = "<https://your-app.pages.dev>"
+
+# 書き込みを許可する同期コードのカンマ区切りリスト。
+# API は認証を持たず、同期コードはクライアントが自分で生成するため、形式検証だけでは
+# 見知らぬ第三者が自分でコードを名乗って無制限に書き込むのを止められない。
+# WAF レートリミットはゾーン単位の機能で *.workers.dev には適用できないので、
+# 限定公開の運用ではこの allowlist が唯一の実効的な入口制御になる。
+#
+# **空のままにすると全許可**（設定漏れで自分を締め出さないための後方互換）。
+# 利用者を追加する手順: 端末でコードを発行 → ここに追記 → `npx wrangler deploy`
+ALLOWED_SYNC_CODES = ""
