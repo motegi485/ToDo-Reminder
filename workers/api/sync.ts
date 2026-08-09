@@ -1,5 +1,7 @@
 import type { Env } from '../lib/cors';
 import { jsonResponse } from '../lib/cors';
+import { LIMITS } from '../lib/constants';
+import { isAllowedSyncCode, readJsonObject } from '../lib/guard';
 import { applyLWW, rowToPayload } from '../lib/lww';
 import type { TaskPayload } from '../lib/lww';
 
@@ -16,14 +18,20 @@ async function upsertUser(db: D1Database, syncCode: string): Promise<void> {
 }
 
 export async function handleSyncPull(request: Request, env: Env): Promise<Response> {
-  const body = await request.json<{ sync_code?: unknown; last_synced_at?: unknown }>();
+  const body = await readJsonObject<{ sync_code?: unknown; last_synced_at?: unknown }>(request);
+  if (body === null) {
+    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
+  }
   const syncCode = body.sync_code;
   const lastSyncedAt = body.last_synced_at;
 
   if (typeof syncCode !== 'string' || !SYNC_CODE_RE.test(syncCode)) {
     return jsonResponse({ error: 'invalid sync_code' }, env, request, 400);
   }
-  if (typeof lastSyncedAt !== 'number') {
+  if (!isAllowedSyncCode(env, syncCode)) {
+    return jsonResponse({ error: 'sync code not allowed' }, env, request, 403);
+  }
+  if (typeof lastSyncedAt !== 'number' || !Number.isFinite(lastSyncedAt)) {
     return jsonResponse({ error: 'invalid last_synced_at' }, env, request, 400);
   }
 
@@ -52,11 +60,14 @@ export async function handleSyncPull(request: Request, env: Env): Promise<Respon
 }
 
 export async function handleSyncPush(request: Request, env: Env): Promise<Response> {
-  const body = await request.json<{
+  const body = await readJsonObject<{
     sync_code?: unknown;
     tasks?: unknown;
     previous_sync_code?: unknown;
-  }>();
+  }>(request);
+  if (body === null) {
+    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
+  }
   const syncCode = body.sync_code;
   const tasks = body.tasks;
   const previousSyncCode = body.previous_sync_code;
@@ -64,8 +75,22 @@ export async function handleSyncPush(request: Request, env: Env): Promise<Respon
   if (typeof syncCode !== 'string' || !SYNC_CODE_RE.test(syncCode)) {
     return jsonResponse({ error: 'invalid sync_code' }, env, request, 400);
   }
+  if (!isAllowedSyncCode(env, syncCode)) {
+    return jsonResponse({ error: 'sync code not allowed' }, env, request, 403);
+  }
   if (!Array.isArray(tasks)) {
     return jsonResponse({ error: 'tasks must be an array' }, env, request, 400);
+  }
+  // 件数上限。クライアントは CHUNK_SIZE 件ずつ送るので通常は到達しない。
+  // 1 リクエストの D1 発行文数は概ね `1 + ceil(N/CHUNK) + N` になるため、
+  // ここを開けておくと Free の「50 クエリ / Worker 呼び出し」を容易に超える。
+  if (tasks.length > LIMITS.MAX_TASKS_PER_PUSH) {
+    return jsonResponse(
+      { error: `too many tasks (max ${LIMITS.MAX_TASKS_PER_PUSH})` },
+      env,
+      request,
+      400,
+    );
   }
   // previous_sync_code は同期コード切替時のみ付く任意項目。
   if (
@@ -73,6 +98,11 @@ export async function handleSyncPush(request: Request, env: Env): Promise<Respon
     (typeof previousSyncCode !== 'string' || !SYNC_CODE_RE.test(previousSyncCode))
   ) {
     return jsonResponse({ error: 'invalid previous_sync_code' }, env, request, 400);
+  }
+  // 旧コードからの「移動」も、旧コード自体が許可済みでなければ認めない
+  // （許可されていないコードの行を自コードへ吸い上げる経路を塞ぐ）。
+  if (typeof previousSyncCode === 'string' && !isAllowedSyncCode(env, previousSyncCode)) {
+    return jsonResponse({ error: 'previous sync code not allowed' }, env, request, 403);
   }
 
   await upsertUser(env.DB, syncCode);
