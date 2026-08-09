@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { storage } from '@/lib/storage';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { subscribePush } from '@/lib/notifyClient';
 import { showToast } from '@/components/ui/Toast';
 import type { Task } from '@/types';
@@ -8,9 +8,23 @@ import type { Task } from '@/types';
 // 1 リクエストに載せるタスク数。サーバー側も同じ粒度でクエリを分割するが、
 // リクエスト本文の肥大化（初回同期・切替時の全量 push）を避けるため
 // クライアント側でも分割して送る。
-const PUSH_CHUNK_SIZE = 50;
+//
+// 40 にしている理由（50 ではなく）: D1 Free の上限は「50 クエリ / Worker 呼び出し」で、
+// push 1 回の発行文数は概ね `1 + ceil(N/40) + N`。N=50 だと 52 文で上限を超えうる。
+// **`workers/lib/chunk.ts` の CHUNK_SIZE と揃えること。**
+const PUSH_CHUNK_SIZE = 40;
+// 総試行回数（= 初回 1 回 + リトライ 2 回）。
 const PUSH_RETRY_ATTEMPTS = 3;
 const PUSH_RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * 4xx はクライアント側の要求そのものが通らない状態（コード未許可・形式不正・
+ * 件数超過）なので、何度投げても結果は変わらない。429 だけは「今は混んでいる」の
+ * 意味なので再試行する。
+ */
+function isPermanentApiError(err: unknown): boolean {
+  return err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 429;
+}
 
 /** 一時的なネットワーク不調による失敗を、指数バックオフで吸収する。 */
 async function withRetry<T>(fn: () => Promise<T>, attempts = PUSH_RETRY_ATTEMPTS): Promise<T> {
@@ -20,6 +34,8 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = PUSH_RETRY_ATTEMPTS
       return await fn();
     } catch (err) {
       lastErr = err;
+      // 恒久エラーを 3 回投げても無駄にリクエストが 3 倍になるだけ。
+      if (isPermanentApiError(err)) throw err;
       if (i < attempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, PUSH_RETRY_BASE_DELAY_MS * 2 ** i));
       }
@@ -45,10 +61,18 @@ async function pushInChunks(
 ): Promise<number> {
   const sorted = [...tasks].sort((a, b) => a.updated_at - b.updated_at);
   let skipped = 0;
+  let invalid = 0;
   for (let i = 0; i < sorted.length; i += PUSH_CHUNK_SIZE) {
     const chunk = sorted.slice(i, i + PUSH_CHUNK_SIZE);
     const res = await withRetry(() => api.syncPush(syncCode, chunk, previousSyncCode));
     skipped += res.skipped;
+    invalid += res.invalid ?? 0;
+  }
+  // サーバー側バリデーションで落ちた行はカーソルが進むと再送されない＝黙って
+  // 失われる。件数が出たら気づけるようにする（通常は 0）。
+  if (invalid > 0) {
+    console.warn(`[sync] ${invalid} task(s) rejected by server validation`);
+    showToast(`${invalid}件のタスクをサーバーが受け付けませんでした`, 'warn');
   }
   return skipped;
 }
@@ -83,6 +107,10 @@ async function push(syncCode: string, since: number): Promise<void> {
   }
 }
 
+// 「同期コードが未登録（403）」の案内は繰り返しても直しようがないため 1 回だけ出す。
+// コードを切り替えたら再び出せるようにリセットする。
+let notAllowedNotified = false;
+
 export async function runSync(): Promise<void> {
   if (!navigator.onLine) return;
   if (!import.meta.env.VITE_API_URL) return;
@@ -100,6 +128,16 @@ export async function runSync(): Promise<void> {
     await pull(syncCode);
   } catch (err) {
     console.warn('Sync failed:', err);
+    // 403 = この同期コードがサーバーの許可リストに載っていない。新規インストール直後は
+    // 端末が自分で生成した未登録コードを持っているため必ずこうなる。5 分ごとに
+    // 「同期に失敗しました」を出しても直しようがないので、案内は 1 度だけにする。
+    if (err instanceof ApiError && err.status === 403) {
+      if (!notAllowedNotified) {
+        notAllowedNotified = true;
+        showToast('この端末の同期コードは未登録です。設定から既存のコードを入力してください', 'warn');
+      }
+      return;
+    }
     showToast('同期に失敗しました', 'warn');
   }
 }
@@ -121,6 +159,7 @@ interface SwitchSyncCodeResult {
 }
 
 export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCodeResult> {
+  notAllowedNotified = false;
   const oldSyncCode = storage.getSyncCode();
   const currentTasks = await db.tasks.toArray();
   const reassigned = currentTasks

@@ -3,6 +3,17 @@ import type { Task } from '@/types';
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 const REQUEST_TIMEOUT_MS = 15000;
 
+/** HTTP ステータスを保持するエラー。呼び出し側が恒久エラーと一時エラーを区別するのに使う。 */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    path: string,
+  ) {
+    super(`API error ${status}: ${path}`);
+    this.name = 'ApiError';
+  }
+}
+
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   if (!API_URL) throw new Error('VITE_API_URL not configured');
   // 回線ハングで同期が無期限に待たないよう、タイムアウトで中断する。
@@ -15,7 +26,7 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error(`API error ${res.status}: ${path}`);
+    if (!res.ok) throw new ApiError(res.status, path);
     return res.json() as Promise<T>;
   } finally {
     clearTimeout(timer);
@@ -33,6 +44,8 @@ interface PushResponse {
   conflicts: Array<{ id: string; server_updated_at: number }>;
   /** 他の同期コードが所有する既存行への書き込みとして拒否された件数。 */
   skipped: number;
+  /** サーバー側バリデーションを通らず保存されなかった件数（古いサーバーでは未定義）。 */
+  invalid?: number;
 }
 
 export const api = {
