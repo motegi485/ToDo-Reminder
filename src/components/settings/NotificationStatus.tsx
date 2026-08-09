@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
-import { requestNotificationPermission, subscribePush } from '@/lib/notifyClient';
+import { requestNotificationPermission, subscribePush, unsubscribePush } from '@/lib/notifyClient';
+import { storage } from '@/lib/storage';
 
 type Permission = 'granted' | 'denied' | 'default' | 'unsupported';
 
@@ -18,6 +19,9 @@ const LABELS: Record<Permission, string> = {
 
 export function NotificationStatus() {
   const [perm, setPerm] = useState<Permission>(() => readPermission());
+  // ブラウザの通知許可とは別軸。許可済みでも「この端末では受け取らない」を選べる。
+  const [pushDisabled, setPushDisabled] = useState(() => storage.getPushDisabled());
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const onFocus = () => setPerm(readPermission());
@@ -32,6 +36,27 @@ export function NotificationStatus() {
     setPerm(next);
     if (result === 'granted') {
       await subscribePush();
+      setPushDisabled(storage.getPushDisabled());
+    }
+  };
+
+  const handleResubscribe = async () => {
+    setBusy(true);
+    try {
+      await subscribePush();
+      setPushDisabled(storage.getPushDisabled());
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setBusy(true);
+    try {
+      await unsubscribePush();
+      setPushDisabled(storage.getPushDisabled());
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -58,14 +83,40 @@ export function NotificationStatus() {
       {perm === 'denied' && (
         <p className="text-xs text-slate-500">ブラウザの設定から変更してください</p>
       )}
-      {perm === 'granted' && (
-        <button
-          type="button"
-          onClick={() => subscribePush()}
-          className="px-3 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800"
-        >
-          通知を再リクエスト
-        </button>
+      {perm === 'granted' && pushDisabled && (
+        <>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            この端末では通知を停止しています。他の端末には引き続き届きます。
+          </p>
+          <button
+            type="button"
+            onClick={handleResubscribe}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm bg-brand-600 text-white dark:bg-brand-400 dark:text-slate-900 disabled:opacity-50"
+          >
+            この端末の通知を再開
+          </button>
+        </>
+      )}
+      {perm === 'granted' && !pushDisabled && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleResubscribe}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm bg-slate-100 dark:bg-slate-800 disabled:opacity-50"
+          >
+            通知を再リクエスト
+          </button>
+          <button
+            type="button"
+            onClick={handleStop}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg text-sm border border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300 disabled:opacity-50"
+          >
+            この端末の通知を停止
+          </button>
+        </div>
       )}
     </section>
   );
