@@ -4,6 +4,11 @@ export interface Env {
   VAPID_PUBLIC_KEY: string;
   VAPID_SUBJECT: string;
   ALLOWED_ORIGIN: string;
+  /**
+   * 書き込みを許可する同期コードのカンマ区切りリスト（`workers/lib/guard.ts`）。
+   * 未設定なら全許可（従来動作）。限定公開の運用では必ず設定する。
+   */
+  ALLOWED_SYNC_CODES?: string;
 }
 
 function getAllowOrigin(env: Env, origin: string | null): string {
