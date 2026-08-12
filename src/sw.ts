@@ -21,8 +21,13 @@ cleanupOutdatedCaches();
 // SPA: どのパス（/report, /settings 等）へ直接アクセスしてもキャッシュ済みの index.html を返す。
 registerRoute(new NavigationRoute(createHandlerBoundToURL('index.html')));
 
-self.addEventListener('install', () => {
-  self.skipWaiting();
+// install の時点では待機したままにする。無条件に skipWaiting すると、ページ側が
+// 更新を適用してよいか（フォーム入力中でないか）を判断する前に有効化されてしまう。
+// 適用のタイミングはページ側が SKIP_WAITING メッセージで指示する（src/lib/appUpdate.ts）。
+self.addEventListener('message', (event) => {
+  if ((event.data as { type?: string } | null)?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {

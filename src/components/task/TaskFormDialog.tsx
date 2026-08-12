@@ -7,6 +7,7 @@ import { ColorPicker } from './ColorPicker';
 import { ProjectInput } from '@/components/project/ProjectInput';
 import { validateForm, type FormValues } from '@/lib/validation';
 import { createTask, updateTask } from '@/lib/taskRepo';
+import { holdAppUpdate } from '@/lib/appUpdate';
 import { DEFAULT_TASK_COLOR } from '@/lib/taskColors';
 import { showToast } from '@/components/ui/Toast';
 import type { Task, TaskType } from '@/types';
@@ -87,6 +88,13 @@ export function TaskFormDialog({ open, onClose, editing, initialProject }: Props
       setSubmitting(false);
     }
   }, [open, editing, initialProject]);
+
+  // 開いているあいだは Service Worker の更新適用（= リロード）を保留させる。
+  // 下書きの保存が無いため、入力中にリロードされると内容がそのまま消える。
+  useEffect(() => {
+    if (!open) return;
+    return holdAppUpdate();
+  }, [open]);
 
   const errors = useMemo(
     () => validateForm(values, Date.now(), initialReminderAt),
