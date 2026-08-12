@@ -102,9 +102,15 @@ export default function ListPage() {
       return true;
     };
 
+    // タイマー ID は finish より前に宣言する。const で後ろに置くと、下の「即座に
+    // 見つかった」経路（タイマーを張る前に finish を呼ぶ）が TDZ に入り、
+    // ReferenceError で query の除去とフォーカスが両方とも完了しない。
+    let pollId: number | undefined;
+    let timeoutId: number | undefined;
+
     const finish = () => {
-      window.clearInterval(pollId);
-      window.clearTimeout(timeoutId);
+      if (pollId !== undefined) window.clearInterval(pollId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       setSearchParams({}, { replace: true });
     };
 
@@ -116,10 +122,10 @@ export default function ListPage() {
     // タスクがまだ手元にない（読込中、または他端末発の通知で未同期）場合、
     // 短い間隔で再試行する。他端末で削除済みなど恒久的に見つからない場合に
     // 備えてタイムアウトで諦め、パラメータだけは必ず外す。
-    const pollId = window.setInterval(() => {
+    pollId = window.setInterval(() => {
       if (tryFocus()) finish();
     }, 500);
-    const timeoutId = window.setTimeout(finish, 20000);
+    timeoutId = window.setTimeout(finish, 20000);
 
     return () => {
       window.clearInterval(pollId);

@@ -405,7 +405,8 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
         // サーバーが次周期へ前進させるために端末 TZ を保持・追従させる
         // （旧データのバックフィルと、端末移動/DST 変化への追従）。
         const tz = -new Date().getTimezoneOffset();
-        if (next.tz_offset !== tz) {
+        const tzChanged = next.tz_offset !== tz;
+        if (tzChanged) {
           next.tz_offset = tz;
           changed = true;
         }
@@ -414,9 +415,20 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
         // 復活してしまう。前進方向（または値が無い/壊れている場合）だけ更新する。
         // 未通知のまま持ち越した過去のリマインダーは stored ≦ desired になるので、
         // 24 時間以内のキャッチアップ通知（offlineNotify）は従来どおり機能する。
+        //
+        // 例外は TZ（オフセット）が変わった実行。夏時間の開始（春）では正しい UTC 時刻が
+        // 1 時間「早く」なるため、前進方向だけの条件では補正が永久に拒否され、サーバーは
+        // 旧オフセット由来の値から前進を続けて毎周期 1 時間遅れたままになる
+        // （秋は後ろへ動くので勝手に直る、という非対称があった）。
+        // オフセットが変わった回に限り、まだ未来である場合だけ過去方向の補正も許す
+        // （未来であることを条件にすれば「保存直後の意図しない通知」は復活しない）。
+        // 日本のように夏時間の無い地域では tzChanged が立たないので挙動は変わらない。
         const desired = recurrenceReminderTime(now, rule.type, next.reminder_offset);
+        const desiredMs = Date.parse(desired);
         const storedMs = next.reminder_time ? Date.parse(next.reminder_time) : NaN;
-        if (desired !== next.reminder_time && !(Date.parse(desired) <= storedMs)) {
+        const movesForward = !(desiredMs <= storedMs);
+        const tzCorrection = tzChanged && desiredMs > now;
+        if (desired !== next.reminder_time && (movesForward || tzCorrection)) {
           next.reminder_time = desired;
           changed = true;
         }
