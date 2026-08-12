@@ -72,6 +72,42 @@ export function isAllowedPushEndpoint(endpoint: string): boolean {
   return ALLOWED_PUSH_HOSTS.some((h) => (h.startsWith('.') ? host.endsWith(h) : host === h));
 }
 
+/** base64url（パディングなし）としてデコードしたバイト列。不正な文字が混じれば null。 */
+function decodeBase64Url(value: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) return null;
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  try {
+    return atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Push 購読の暗号鍵が Web Push（RFC 8291）の形をしているかを検証する。
+ *
+ * subscribe API は「同期コードを知っている者からの任意 JSON」を受ける安全境界だが、
+ * 従来は endpoint と JSON 全体の長さしか見ていなかった。truthy でさえあれば不正な鍵を
+ * 保存でき、cron は毎分そのペイロード構築で例外を出す。例外は一時失敗として扱われ、
+ * claim の取得と取り下げを繰り返すため、単発リマインダー 1 件で最大 1,441 回、
+ * 数千行ぶんの D1 書き込みに化ける（fetch の手前で落ちるので外部送信は 0）。
+ *
+ *  - p256dh: 非圧縮形式の P-256 公開鍵。65 バイトで先頭バイトが 0x04。
+ *  - auth  : 認証シークレット。16 バイト。
+ */
+export function isValidPushKeys(keys: unknown): boolean {
+  if (keys == null || typeof keys !== 'object' || Array.isArray(keys)) return false;
+  const { p256dh, auth } = keys as { p256dh?: unknown; auth?: unknown };
+  if (typeof p256dh !== 'string' || typeof auth !== 'string') return false;
+
+  const publicKey = decodeBase64Url(p256dh);
+  if (publicKey === null || publicKey.length !== 65) return false;
+  if (publicKey.charCodeAt(0) !== 0x04) return false;
+
+  const authSecret = decodeBase64Url(auth);
+  return authSecret !== null && authSecret.length === 16;
+}
+
 // 制御文字（C0 + DEL）。改行・タブを含む。
 const CONTROL_CHARS_RE = /[\u0000-\u001F\u007F]/g;
 
