@@ -82,8 +82,9 @@ export async function handleSyncPush(request: Request, env: Env): Promise<Respon
     return jsonResponse({ error: 'tasks must be an array' }, env, request, 400);
   }
   // 件数上限。クライアントは CHUNK_SIZE 件ずつ送るので通常は到達しない。
-  // 1 リクエストの D1 発行文数は概ね `1 + ceil(N/CHUNK) + N` になるため、
-  // ここを開けておくと Free の「50 クエリ / Worker 呼び出し」を容易に超える。
+  // 1 リクエストの D1 発行文数は `1(users upsert) + ceil(N/CHUNK)(既存行 SELECT) + N(batch)`
+  // になるため、ここを開けておくと Free の「50 クエリ / Worker 呼び出し」を容易に超える。
+  // MAX_TASKS_PER_PUSH は CHUNK_SIZE と同値（40 → 42 文）。
   if (tasks.length > LIMITS.MAX_TASKS_PER_PUSH) {
     return jsonResponse(
       { error: `too many tasks (max ${LIMITS.MAX_TASKS_PER_PUSH})` },

@@ -1,5 +1,5 @@
 import { CHUNK_SIZE, chunk } from './chunk';
-import { ISO_INSTANT_RE, LIMITS, RECURRENCE_TYPES } from './constants';
+import { isCanonicalIsoInstant, LIMITS, RECURRENCE_TYPES } from './constants';
 
 interface TaskRow {
   id: string;
@@ -144,8 +144,13 @@ function isValidPayload(t: TaskPayload, nowMs: number): boolean {
   // reminder_time は Date.toISOString() の出力そのものだけを許す。
   // cron の候補クエリは辞書順比較でインデックスを使うため、書式が崩れると
   // 順序が壊れ、その行は回収からも抜けなくなる（migrations/0006 のコメント参照）。
+  // 書式（桁の形）だけでなく暦としての妥当性も見る: 2026-00-01 や 2026-02-31 は
+  // 正規表現を通るが、前者は Date.parse が NaN になり cron が永久に前進できず、
+  // 後者は別の日へ正規化されて保存時刻と発火時刻がずれる。
   if (t.reminder_time != null) {
-    if (typeof t.reminder_time !== 'string' || !ISO_INSTANT_RE.test(t.reminder_time)) return false;
+    if (typeof t.reminder_time !== 'string' || !isCanonicalIsoInstant(t.reminder_time)) {
+      return false;
+    }
   }
 
   if (t.recurrence_rule != null) {
@@ -187,9 +192,24 @@ export async function applyLWW(
   result.invalid = own.length - valid.length;
   if (valid.length === 0) return result;
 
+  // 同一リクエスト内の重複 id を最新の 1 件へ畳む。
+  // 畳まないと、下の事前 SELECT が作る同じスナップショットに重複行がすべて合格し、
+  // 最終値は「batch で最後に流れた行」＝配列の末尾になる。updated_at 200 の後ろに 100 を
+  // 並べるだけで新しい編集が消えるため、並行リクエストを仮定せずに逆転が起きる。
+  // 公式クライアントは Dexie の主キー単位で送るので重複は出ない（通常は no-op）。
+  const byId = new Map<string, TaskPayload>();
+  for (const t of valid) {
+    const prev = byId.get(t.id);
+    if (prev == null || t.updated_at >= prev.updated_at) byId.set(t.id, t);
+  }
+  const deduped = [...byId.values()];
+
   // 既存行の updated_at と所有コードを取得（バインド上限のためチャンク分割）。
+  // これは応答の内訳（conflicts / skipped）を作るための参考値で、書き込みの可否そのものは
+  // 下の条件付き UPSERT が SQL 内で原子的に判定する（この SELECT と書き込みの間に
+  // 別リクエストが割り込んでも古い値が新しい値を上書きしないようにするため）。
   const serverMap = new Map<string, { updated_at: number; sync_code: string }>();
-  for (const ids of chunk(valid.map((t) => t.id), CHUNK_SIZE)) {
+  for (const ids of chunk(deduped.map((t) => t.id), CHUNK_SIZE)) {
     const placeholders = ids.map(() => '?').join(',');
     const existing = await db
       .prepare(`SELECT id, updated_at, sync_code FROM tasks WHERE id IN (${placeholders})`)
@@ -201,7 +221,7 @@ export async function applyLWW(
   }
 
   const toUpsert: TaskRow[] = [];
-  for (const task of valid) {
+  for (const task of deduped) {
     const server = serverMap.get(task.id);
     // テナント分離: 既存行が別の同期コードの所有なら、previous_sync_code の申告が
     // 一致する（= 正当なコード切替の移行）場合を除き書き込まない。id は UUID で
@@ -230,15 +250,47 @@ export async function applyLWW(
     // Date.now() を下限に敷くのは、過去にクリーンアップで最大 seq 行が消えても
     // 既存端末の ms スケールのカーソルより後ろへ必ず並ぶようにするため。
     const nowMs = Date.now();
-    const stmts = toUpsert.map((row) =>
+    // LWW 判定（updated_at 比較）とテナント分離を、書き込みと同じ 1 文の中で行う。
+    //
+    // かつては上の SELECT で採否を決めたあと **無条件の** INSERT OR REPLACE を流していた。
+    // SELECT は batch の外なので、判定と書き込みの間に別リクエストの batch が入り込むと、
+    // 両方が同じ古いスナップショットに合格して後着の古い値が新しい値を上書きできた。
+    // server_seq は上書きのたびに前進するので、その古い値が「最新のサーバー行」として
+    // 各端末へ pull され、次の編集まで自然回復しない。
+    //
+    // ON CONFLICT の WHERE で条件を SQL 側へ移すと、判定と書き込みが同じ文の中で起きるため
+    // 割り込みが入り得なくなる。条件は既存の JS 判定と同じ意味にする:
+    //   - updated_at が同値以上のときだけ上書き（同値受理は従来どおり）
+    //   - 既存行の所有コードが自コード、または申告された旧コードのときだけ書き込む（I-15）
+    const buildStmt = (row: TaskRow): D1PreparedStatement =>
       db
         .prepare(
-          `INSERT OR REPLACE INTO tasks
+          `INSERT INTO tasks
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
             project_name, sort_order, created_at, updated_at, tz_offset, color, server_seq)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
-                   MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))`,
+                   MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))
+           ON CONFLICT(id) DO UPDATE SET
+             sync_code       = excluded.sync_code,
+             title           = excluded.title,
+             type            = excluded.type,
+             status          = excluded.status,
+             current_value   = excluded.current_value,
+             target_value    = excluded.target_value,
+             due_date        = excluded.due_date,
+             reminder_offset = excluded.reminder_offset,
+             reminder_time   = excluded.reminder_time,
+             recurrence_rule = excluded.recurrence_rule,
+             project_name    = excluded.project_name,
+             sort_order      = excluded.sort_order,
+             created_at      = excluded.created_at,
+             updated_at      = excluded.updated_at,
+             tz_offset       = excluded.tz_offset,
+             color           = excluded.color,
+             server_seq      = excluded.server_seq
+           WHERE excluded.updated_at >= tasks.updated_at
+             AND (tasks.sync_code = excluded.sync_code OR tasks.sync_code = ?)`,
         )
         .bind(
           row.id,
@@ -260,14 +312,33 @@ export async function applyLWW(
           row.color,
           syncCode,
           nowMs,
-        ),
-    );
+          // null を渡すと SQL の比較結果が NULL（= 偽）になるため、申告なしの移動は
+          // SQL 側でも成立しない。
+          previousSyncCode,
+        );
+
     // batch も文数上限を避けてチャンク実行。チャンク間はトランザクションが分かれるが
     // upsert は冪等（クライアントは失敗時に全量を再送する）ため整合性は崩れない。
-    for (const stmtChunk of chunk(stmts, CHUNK_SIZE)) {
-      await db.batch(stmtChunk);
+    for (const rows of chunk(toUpsert, CHUNK_SIZE)) {
+      const batchResults = await db.batch(rows.map(buildStmt));
+      rows.forEach((row, i) => {
+        // accepted は「送った件数」ではなく **実際に書き込めた件数** を返す。
+        // 同期コード切替（switchSyncCode）は、全件がサーバーへ移ったことを確認してから
+        // ローカルを消す判断に使うため、ここが楽観値だと保全判定が成立しない。
+        if ((batchResults[i]?.meta.changes ?? 0) > 0) {
+          result.accepted += 1;
+        } else {
+          // 上の SELECT では通ったが、条件付き UPSERT の WHERE で弾かれた
+          // （= 判定と書き込みの間に、より新しい値か別の所有者が書き込まれた）。
+          // server_updated_at は事前 SELECT 時点の値。取得できない場合は、少なくとも
+          // 送信値以上であることは確実なので送信値を下限として返す。
+          result.conflicts.push({
+            id: row.id,
+            server_updated_at: serverMap.get(row.id)?.updated_at ?? row.updated_at,
+          });
+        }
+      });
     }
-    result.accepted = toUpsert.length;
   }
 
   return result;

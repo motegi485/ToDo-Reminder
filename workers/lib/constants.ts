@@ -22,8 +22,15 @@ export const LIMITS = {
   /** recurrence_rule を JSON 文字列化した後のバイト長。 */
   RECURRENCE_RULE_MAX_BYTES: 512,
 
-  /** 1 リクエストで受け付けるタスク件数。クライアントは 40 件で送る（余裕を持たせた上限）。 */
-  MAX_TASKS_PER_PUSH: 50,
+  /**
+   * 1 リクエストで受け付けるタスク件数。`chunk.ts` の CHUNK_SIZE と同値にする。
+   *
+   * push 1 回の D1 発行文数は `1(users upsert) + ceil(N/CHUNK)(既存行 SELECT) + N(batch の文)`。
+   * かつては 50 を許可していたが、CHUNK=40 では N=50 のとき `1 + 2 + 50 = 53` 文となり、
+   * D1 Free の「50 クエリ / Worker 呼び出し」を **API 契約上正しい最大入力で** 超えていた
+   * （コメントに残っていた「52」は CHUNK=50 時代の算術）。N=40 なら 42 文で確実に収まる。
+   */
+  MAX_TASKS_PER_PUSH: 40,
 
   /** tz_offset（UTC からの分）。実在するのは -720..+840。 */
   TZ_OFFSET_MIN: -900,
@@ -58,6 +65,8 @@ export const LIMITS = {
    * 取りこぼし回収（stale）で 1 回の cron が前進させる行数の上限。
    * D1 Free は「50 クエリ / Worker 呼び出し」なので、候補処理ぶんを残して
    * ここを絞らないと 1 回の cron が上限を超えて丸ごと失敗する。
+   * 実際の LIMIT はこの値と「その実行の残予算」の小さいほう（notify.ts の
+   * CRON_D1_BUDGET を参照）。この値だけでは候補処理との合計を抑えられない。
    */
   STALE_ADVANCE_LIMIT: 20,
 } as const;
@@ -69,6 +78,26 @@ export const LIMITS = {
  * Date.prototype.toISOString() の出力と完全に同じ形だけを受け付ける。
  */
 export const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * `Date.prototype.toISOString()` が実際に出力し得る文字列かを判定する。
+ *
+ * 正規表現は「桁の形」しか見ないため、暦として存在しない値を素通しする:
+ *   - `2026-00-01T00:00:00.000Z` / `2026-13-01T…` / `2026-01-32T…` → `Date.parse` が NaN
+ *   - `2026-02-31T…` → 実在しない日なので `2026-03-03` へ正規化される（別の時刻になる）
+ *   - `2026-01-01T24:00:00.000Z` → 翌日 0:00 へ繰り上がる
+ *
+ * NaN になる値が入ると cron の取りこぼし回収（notify.ts）が前進計算できず、その行は
+ * `ORDER BY reminder_time LIMIT n` の先頭を永久に占有して他の行の回収を止める。
+ * 正規化される値は「保存した時刻と発火する時刻がずれる」ことになる。
+ * どちらも parse → 再フォーマットの往復一致で弾ける。
+ */
+export function isCanonicalIsoInstant(value: string): boolean {
+  if (!ISO_INSTANT_RE.test(value)) return false;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return false;
+  return new Date(ms).toISOString() === value;
+}
 
 /** サーバーが解釈できる繰り返し種別。`workers/lib/recurrence.ts` の RecurrenceType と一致させる。 */
 export const RECURRENCE_TYPES = new Set(['daily', 'weekly', 'monthly']);
