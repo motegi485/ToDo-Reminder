@@ -1,6 +1,7 @@
 import { buildPushPayload } from '@block65/webcrypto-web-push';
 import type { PushSubscription } from '@block65/webcrypto-web-push';
 import type { Env } from './cors';
+import { isAllowedPushEndpoint } from './guard';
 
 interface PushPayload {
   title: string;
@@ -13,10 +14,12 @@ export type SendResult = 'ok' | 'expired' | 'permanent' | 'failed';
 
 /**
  * 戻り値の 4 値は呼び出し側の後始末が異なる:
- *  - 'expired'  : 購読が恒久的に無効（404/410、または保存 JSON が壊れている）。
+ *  - 'expired'  : 購読が恒久的に無効（404/410、保存 JSON が壊れている、または
+ *                 endpoint が現在の許可ホストに一致しない）。
  *                 → 購読レコードを削除してよい。
  *  - 'permanent': 購読は有効だがこのメッセージは何度送っても通らない
- *                 （413 = ペイロード超過、400/403 = VAPID 不正など）。
+ *                 （413 = ペイロード超過、400/403 = VAPID 不正、鍵が壊れていて
+ *                 ペイロードを構築できない、など）。
  *                 → 購読は消さないが、再試行もしない。
  *  - 'failed'   : 一時障害（429/5xx、fetch 例外、ネットワーク断など）。
  *                 → 購読は有効なので削除しない。呼び出し側で再試行を判断する。
@@ -41,18 +44,39 @@ export async function sendWebPush(
     return 'expired';
   }
 
+  // 保存済みの endpoint も送信の直前に検証する。subscribe API のホスト制限は
+  // 「これから保存する行」にしか効かない。migrations/0006 は旧 users.push_subscription を
+  // ホスト検証なしで push_subscriptions へコピーしているため、allowlist 導入より前に
+  // 登録された任意の URL が残っていれば、この fetch が毎分そこへ POST し続ける。
+  // 'expired' を返すと呼び出し側（cron）が行ごと削除するので、残存行は自動的に片付く。
+  if (!isAllowedPushEndpoint(subscription.endpoint)) {
+    console.warn(`[webpush] dropping subscription with disallowed endpoint: ${subscription.endpoint}`);
+    return 'expired';
+  }
+
   const vapidKeys = {
     subject: env.VAPID_SUBJECT,
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY,
   };
 
+  // ペイロード構築（鍵の decode / import / 暗号化）と送信は失敗の意味が違うので分ける。
+  // ここでの例外は入力が決まれば必ず再現する決定的な失敗なので、'failed'（＝毎分再試行）に
+  // 混ぜてはいけない。混ぜると壊れた鍵 1 件が延々と claim の取得・取り下げを繰り返す。
+  let request: Awaited<ReturnType<typeof buildPushPayload>>;
   try {
-    const { headers, method, body } = await buildPushPayload(
+    request = await buildPushPayload(
       { data: payload as unknown as Record<string, string | null> },
       subscription,
       vapidKeys,
     );
+  } catch (err) {
+    console.error('[webpush] failed to build payload (broken keys or VAPID config):', err);
+    return 'permanent';
+  }
+
+  try {
+    const { headers, method, body } = request;
     const response = await fetch(subscription.endpoint, { method, headers, body });
     if (response.status === 410 || response.status === 404) {
       return 'expired';
