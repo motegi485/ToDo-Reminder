@@ -14,7 +14,10 @@ interface ProjectGroupData {
 }
 
 interface GroupMeta {
-  key: string;
+  // グループの同一性を表す内部キー。未分類は null で、ユーザーが付けたどんな
+  // プロジェクト名とも衝突しない（センチネル文字列を使うと、たまたま同じ名前の
+  // プロジェクトが未分類グループと合流してしまう）。
+  key: string | null;
   name: string | null;
   tasks: Task[];
   remaining: number;
@@ -22,10 +25,10 @@ interface GroupMeta {
 }
 
 function buildGroups(tasks: Task[]): GroupMeta[] {
-  const map = new Map<string, GroupMeta>();
+  const map = new Map<string | null, GroupMeta>();
   for (const t of tasks) {
     if (t.status === 'deleted') continue;
-    const key = t.project_name ?? '__null__';
+    const key = t.project_name;
     let g = map.get(key);
     if (!g) {
       g = { key, name: t.project_name, tasks: [], remaining: 0, oldestCreatedAt: t.created_at };
@@ -41,8 +44,12 @@ function buildGroups(tasks: Task[]): GroupMeta[] {
 // タスクの完了・削除で件数などが同点になっただけで、意図しない並び替えに見えないように、
 // 同点時は前回表示していた順序を優先する。前回情報がない（新規プロジェクトどうしの同点）場合のみ名前順。
 // 「その他」（未分類、name === null）は表示順設定に関わらず常に最下部に固定する。
-function sortGroupsStably(groups: GroupMeta[], order: SortOrder, prevOrder: string[]): GroupMeta[] {
-  const prevIndex = new Map(prevOrder.map((key, i) => [key, i]));
+function sortGroupsStably(
+  groups: GroupMeta[],
+  order: SortOrder,
+  prevOrder: Array<string | null>,
+): GroupMeta[] {
+  const prevIndex = new Map<string | null, number>(prevOrder.map((key, i) => [key, i]));
   return [...groups].sort((a, b) => {
     if (a.name === null || b.name === null) {
       if (a.name === null && b.name === null) return 0;
@@ -66,7 +73,7 @@ function sortGroupsStably(groups: GroupMeta[], order: SortOrder, prevOrder: stri
 export function useProjectGroups(): ProjectGroupData[] | undefined {
   const tasks = useLiveQuery(() => db.tasks.where('status').notEqual('deleted').toArray(), []);
   const { value: order } = useSortOrder();
-  const prevOrderRef = useRef<string[]>([]);
+  const prevOrderRef = useRef<Array<string | null>>([]);
 
   const groups = sortGroupsStably(buildGroups(tasks ?? []), order, prevOrderRef.current);
 
