@@ -4,14 +4,15 @@
 
 **`docs/` がアーキテクチャ・データモデル・同期/通知仕様・デプロイ手順の single source of truth。** 作業前にまず `docs/README.md`（目次）と `docs/invariants.md`（壊してはいけない不変条件）を読むこと。仕様・挙動に関わる変更をしたら、`docs/` の該当ファイルも必ず同じコミットで更新する。
 
+- **「SSOT」は規範（何をどう設計したか）についての話。** 実際の挙動という事実についての一次情報はコードで、記述が食い違ったらコードが正しい（`docs/README.md` の運用ルールと同じ）。食い違いを見つけたら docs を直す。
 - `README.md` はアプリの紹介・技術スタック・データの取り扱い・権利関係に絞ってある（利用者と外部向け）。設計の詳細は書かない。
 - **`docs/` は現在 git 追跡外**（`.gitignore` の `docs/`）。clone しただけでは手に入らない。追跡に切り替えるときは `.gitignore` から該当行を削除する。
 - `docs/` の数値の多くは 2026-08-09 の公開前監査でのローカル実測に基づく。監査報告書そのものは残存リスクの詳細を持つため公開リポジトリには残していない（結論と対策は `docs/security.md` に取り込み済み）。
-- **このファイルと `AGENTS.md` は同一内容を保つこと**（対象エージェントが違うだけ）。片方を変えたらもう片方も変える。
+- **`AGENTS.md` と `CLAUDE.md` は同一内容を保つこと**（対象エージェントが違うだけ）。片方を変えたらもう片方も変える。相互参照を書き分けるとバイト一致でなくなるので、この 2 ファイルに固有の記述は置かない。
 
 ## コマンド
 
-- `npm run dev` — 開発サーバー（http://localhost:5173）。Service Worker は dev では無効。SW・Push の確認は `npm run build && npm run preview`
+- `npm run dev` — 開発サーバー（http://localhost:5173）。Service Worker は dev では無効。SW・Push の確認は `npm run build` のあと `npm run preview`（PowerShell 5.1 に `&&` は無いので 1 行にまとめない）
 - `npm run typecheck` — フロント（`tsc -b`）と Workers（`tsc -p tsconfig.workers.json`）の両方を型チェック
 - `npm run build` — 上記 typecheck + vite build
 - 自動テスト・lint・CI は存在しない。変更後の検証は typecheck / build / 手動動作確認が基本
@@ -33,7 +34,7 @@
 
 ## 設計上の不変条件（変更時に壊さないこと）
 
-> 全 16 項目と「破ったときに何が起きるか」は `docs/invariants.md` にある。以下は特に踏みやすい 4 つの抜粋。
+> 全項目と「破ったときに何が起きるか」は `docs/invariants.md` にある。以下は特に踏みやすい 4 つの抜粋。
 
 - 繰り返しタスクの status 復活（completed→active）は**クライアント専任**。サーバー（Workers）から status を書き換えない（LWW 同期が乱れる）
 - 同期カーソルは push / pull で時計を分離（push=クライアント時計 `lastPushedAt`、pull=サーバー採番 `server_seq`）。混在させない
