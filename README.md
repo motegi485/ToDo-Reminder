@@ -52,7 +52,7 @@ Web Push による通知配信に対応します。
 
 | 領域 | 採用 |
 |---|---|
-| フロントエンド | React 18 / TypeScript 5.6 / Vite 5 / Tailwind CSS 3.4 / React Router 6 |
+| フロントエンド | React 18 / TypeScript 5 / Vite 5 / Tailwind CSS 3.4 / React Router 6 |
 | ローカル DB | Dexie 4（IndexedDB） |
 | UI 部品 | lucide-react（アイコン）／@dnd-kit（ドラッグ並べ替え） |
 | PWA | vite-plugin-pwa（`injectManifest` 戦略） |
