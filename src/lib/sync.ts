@@ -44,6 +44,20 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = PUSH_RETRY_ATTEMPTS
   throw lastErr;
 }
 
+/** push の結果集計。HTTP が 200 でも「1 件も書けていない」ことがあるため全項目を返す。 */
+interface PushOutcome {
+  /** 送った件数。 */
+  sent: number;
+  /** サーバーが実際に書き込んだ件数。 */
+  accepted: number;
+  /** サーバー側のほうが新しく、上書きしなかった件数。 */
+  conflicts: number;
+  /** 他の同期コードが所有していて書き込めなかった件数。 */
+  skipped: number;
+  /** サーバーのバリデーションを通らなかった件数。 */
+  invalid: number;
+}
+
 /**
  * タスクをチャンクに分けて順に push する。途中で失敗したら throw し、呼び出し側は
  * カーソル（lastPushedAt）を進めない → 次回の同期で全量が再送される。
@@ -52,29 +66,39 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = PUSH_RETRY_ATTEMPTS
  * 状態が保たれる。各チャンクはリトライ付きで送るため、同期コード切替時に一部の
  * チャンクだけ一時的なネットワーク不調で失敗し、テナント分離チェックにより
  * 以後の通常同期で該当タスクが恒久的に skip される事態を減らす。
- * 戻り値は他コード所有として拒否された（skipped）件数の合計。
+ *
+ * **throw されないこと（HTTP 200）は「サーバーが書き込んだ」ことを意味しない。**
+ * conflicts / skipped / invalid はいずれも 200 で返る「論理的な拒否」なので、
+ * ローカルを消すような後戻りできない処理へ進む前には accepted を必ず見ること。
  */
 async function pushInChunks(
   syncCode: string,
   tasks: Task[],
   previousSyncCode?: string,
-): Promise<number> {
+): Promise<PushOutcome> {
   const sorted = [...tasks].sort((a, b) => a.updated_at - b.updated_at);
-  let skipped = 0;
-  let invalid = 0;
+  const outcome: PushOutcome = {
+    sent: sorted.length,
+    accepted: 0,
+    conflicts: 0,
+    skipped: 0,
+    invalid: 0,
+  };
   for (let i = 0; i < sorted.length; i += PUSH_CHUNK_SIZE) {
     const chunk = sorted.slice(i, i + PUSH_CHUNK_SIZE);
     const res = await withRetry(() => api.syncPush(syncCode, chunk, previousSyncCode));
-    skipped += res.skipped;
-    invalid += res.invalid ?? 0;
+    outcome.accepted += res.accepted ?? 0;
+    outcome.conflicts += res.conflicts?.length ?? 0;
+    outcome.skipped += res.skipped;
+    outcome.invalid += res.invalid ?? 0;
   }
   // サーバー側バリデーションで落ちた行はカーソルが進むと再送されない＝黙って
   // 失われる。件数が出たら気づけるようにする（通常は 0）。
-  if (invalid > 0) {
-    console.warn(`[sync] ${invalid} task(s) rejected by server validation`);
-    showToast(`${invalid}件のタスクをサーバーが受け付けませんでした`, 'warn');
+  if (outcome.invalid > 0) {
+    console.warn(`[sync] ${outcome.invalid} task(s) rejected by server validation`);
+    showToast(`${outcome.invalid}件のタスクをサーバーが受け付けませんでした`, 'warn');
   }
-  return skipped;
+  return outcome;
 }
 
 async function pull(syncCode: string): Promise<void> {
@@ -84,7 +108,11 @@ async function pull(syncCode: string): Promise<void> {
   await db.transaction('rw', db.tasks, async () => {
     for (const serverTask of serverTasks) {
       const local = await db.tasks.get(serverTask.id);
-      if (local && local.updated_at >= serverTask.updated_at) continue;
+      // 同値（updated_at が 1ms も違わない別編集）はサーバーを勝ちにする。
+      // サーバーの LWW は同値を受理して上書きするので、ここで `>=` にしてローカルを
+      // 残すと、2 端末が同じミリ秒に別の値を書いたとき互いに自分の値を持ち続け、
+      // 以後どちらかがそのタスクを編集するまで永久に収束しない（full pull でも直らない）。
+      if (local && local.updated_at > serverTask.updated_at) continue;
       await db.tasks.put(serverTask);
     }
   });
@@ -98,7 +126,7 @@ async function push(syncCode: string, since: number): Promise<void> {
   const changed = allTasks.filter((t) => t.updated_at > since);
   if (changed.length === 0) return;
 
-  const skipped = await pushInChunks(syncCode, changed);
+  const { skipped } = await pushInChunks(syncCode, changed);
   // 通常同期での skipped はテナント分離チェックに引っかかった異常系
   // （典型的には switchSyncCode の移行が一部だけ完了した後の恒久的な取りこぼし）。
   // サイレントに失われ続けると気づけないため可視化する。
@@ -148,7 +176,13 @@ export async function runSync(): Promise<void> {
     const pushNow = Date.now();
     await push(syncCode, pushSince);
     // 全チャンク成功したときだけカーソルを進める（途中失敗時は次回に全量再送）。
-    storage.setLastPushedAt(pushNow);
+    //
+    // 1ms 引くのは、push 対象のスナップショット（toArray）を取った後・ここに来る前に
+    // 起きた `updated_at === pushNow` の編集を次回も拾うため。次回の抽出条件は
+    // `updated_at > since` なので、pushNow をそのまま入れるとその編集は二度と送られない。
+    // 1ms 戻しても、境界の行がもう一度送られるだけ（upsert は冪等）。
+    // 端末の時計が巻き戻った場合もカーソルが先へ行き過ぎないので同時に緩和される。
+    storage.setLastPushedAt(pushNow - 1);
   });
 
   // 403 は「このコードは許可リストに無い」なので pull も同じ結果になる。
@@ -213,13 +247,41 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
   if (reassigned.length > 0) {
     // previous_sync_code を申告することで、旧コード所有の既存行を新コードへ
     // 「移動」する書き込みをサーバーが許可する（申告なしの移動は拒否される）。
-    const skipped = await pushInChunks(newSyncCode, reassigned, oldSyncCode ?? undefined);
-    if (skipped > 0) {
-      showToast(`一部のタスク（${skipped}件）を引き継げませんでした`, 'warn');
+    const outcome = await pushInChunks(newSyncCode, reassigned, oldSyncCode ?? undefined);
+
+    // **全件がサーバーに書き込めたときだけ先へ進む。**
+    // この後の db.tasks.clear() は後戻りできない。throw されなかったことは
+    // 「HTTP が通った」だけを意味し、conflicts（サーバーのほうが新しい）や
+    // skipped（別コードの所有）や invalid（検証で落ちた）は 200 で返る。
+    // 従来はそれらを見ずに clear していたため、たとえば「旧コード側のサーバー行のほうが
+    // 新しい」というありふれた状態で切り替えるだけで、そのタスクは新コードへ移らず、
+    // ローカルからも消えて画面から失われていた（旧コードを覚えていれば回収可能だが、
+    // サーバーに無いローカル専用の行は永久に失われる）。
+    if (outcome.accepted !== outcome.sent) {
+      const detail = [
+        outcome.conflicts > 0 ? `他端末の変更が優先: ${outcome.conflicts}件` : null,
+        outcome.skipped > 0 ? `別コードが所有: ${outcome.skipped}件` : null,
+        outcome.invalid > 0 ? `サーバーが受付拒否: ${outcome.invalid}件` : null,
+      ]
+        .filter((s): s is string => s !== null)
+        .join(' / ');
+      console.warn('[switchSyncCode] aborted, not all tasks were stored:', outcome);
+      throw new Error(
+        `${outcome.sent}件中${outcome.accepted}件しかサーバーへ保存できなかったため中止しました` +
+          `（${detail || '原因不明'}）。通常の同期が終わってからもう一度お試しください。` +
+          'この端末のタスクはそのまま残っています',
+      );
     }
   }
 
-  storage.setSyncCode(newSyncCode);
+  // 同期コードを保存できなければ、この先の Push 付け替えとローカル消去へ進んではいけない
+  // （永続値が旧コードのまま、ローカルだけ新コードの内容という食い違いが残る）。
+  if (!storage.setSyncCode(newSyncCode)) {
+    throw new Error(
+      '同期コードを保存できませんでした（ブラウザのストレージが使えない状態です）。' +
+        'この端末のタスクはそのまま残っています',
+    );
+  }
   window.dispatchEvent(new Event('todo-sync-code-changed'));
   storage.setLastSyncedAt(0);
 
