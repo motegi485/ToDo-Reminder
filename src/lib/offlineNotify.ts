@@ -39,9 +39,14 @@ async function fireDueLocalNotificationsInner(): Promise<number> {
   // Push を購読済みなら配信はサーバー Push に委ねる。ローカルで重ねて出すと
   // （冪等ストアが別なので）同じリマインダーが二重に届く。購読が無い環境だけ
   // 本フォールバックを使う。
+  //
+  // ただし「ブラウザ側の購読はできたが、サーバーへの登録が確認できていない」endpoint は
+  // 例外にする。この状態ではサーバーに購読行が無いので Push は届かず、購読の存在だけを
+  // 見て止めると通知が全経路で途切れる（初回設定時や同期コード切替時に API が失敗すると
+  // 起きる）。記録が無い endpoint は従来どおり「登録済み」とみなす。
   try {
     const sub = await reg.pushManager.getSubscription();
-    if (sub) return 0;
+    if (sub && storage.getPushUnconfirmedEndpoint() !== sub.endpoint) return 0;
   } catch {
     /* pushManager 不可なら従来どおりフォールバックを動かす */
   }
