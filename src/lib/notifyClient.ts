@@ -48,7 +48,17 @@ export async function subscribePush(options: { silent?: boolean } = {}): Promise
       userVisibleOnly: true,
       applicationServerKey: vapidPublicKey,
     });
-    await api.pushSubscribe(syncCode, subscription.toJSON() as PushSubscriptionJSON);
+    try {
+      await api.pushSubscribe(syncCode, subscription.toJSON() as PushSubscriptionJSON);
+    } catch (err) {
+      // ブラウザ側の購読だけが残った状態。サーバーには購読行が無いので Push は届かず、
+      // ローカル通知のフォールバックは「購読がある = Push で届く」と判断して止まるため、
+      // 放っておくと通知が全経路で止まる。未確定として記録し、フォールバックを再開させる。
+      // 起動時・オンライン復帰時の再購読（App.tsx）で成功すれば、この記録は消える。
+      storage.setPushUnconfirmedEndpoint(subscription.endpoint);
+      throw err;
+    }
+    storage.setPushUnconfirmedEndpoint(null);
     // 明示的に購読できたので、停止フラグが残っていれば解除する。
     if (!silent) storage.setPushDisabled(false);
     if (!silent) showToast('Push 通知を設定しました', 'success');
@@ -74,6 +84,8 @@ export async function subscribePush(options: { silent?: boolean } = {}): Promise
  */
 export async function unsubscribePush(): Promise<boolean> {
   storage.setPushDisabled(true);
+  // 購読そのものを畳むので「サーバー登録が未確定」の記録も意味を失う。
+  storage.setPushUnconfirmedEndpoint(null);
 
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
     showToast('この端末の通知を停止しました', 'success');
