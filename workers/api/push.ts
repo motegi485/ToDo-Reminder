@@ -1,7 +1,12 @@
 import type { Env } from '../lib/cors';
 import { jsonResponse } from '../lib/cors';
 import { LIMITS } from '../lib/constants';
-import { isAllowedPushEndpoint, isAllowedSyncCode, readJsonObject } from '../lib/guard';
+import {
+  isAllowedPushEndpoint,
+  isAllowedSyncCode,
+  isValidPushKeys,
+  readJsonObject,
+} from '../lib/guard';
 
 // クライアントの生成文字集合に合わせ I/O を除外（紛らわしい文字を使わない）。
 const SYNC_CODE_RE = /^[A-HJ-NP-Z2-9]{12}$/;
@@ -34,6 +39,13 @@ export async function handlePushSubscribe(request: Request, env: Env): Promise<R
   // 限定しないと、購読テーブルが「毎分・任意の宛先へ POST を撃つ」経路になる。
   if (typeof endpoint !== 'string' || !isAllowedPushEndpoint(endpoint)) {
     return jsonResponse({ error: 'invalid subscription endpoint' }, env, request, 400);
+  }
+
+  // 暗号鍵も保存前に検証する。形だけ truthy な不正鍵を受け入れると、cron が毎分
+  // ペイロード構築で例外を出し、claim の取得と取り下げだけを延々と繰り返す
+  // （D1 の書き込み枠を外部送信ゼロで枯渇させられる）。
+  if (!isValidPushKeys((subscription as { keys?: unknown }).keys)) {
+    return jsonResponse({ error: 'invalid subscription keys' }, env, request, 400);
   }
 
   const subscriptionJson = JSON.stringify(subscription);
