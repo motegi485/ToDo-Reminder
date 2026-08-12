@@ -1,6 +1,10 @@
 import { storage } from './storage';
 import { CONSTANTS } from './constants';
 
+// 未分類グループのキー。この名前はプロジェクト名として入力できない（validation.ts）。
+// 状態は Map で持つ: 素のオブジェクトだと、ユーザーが付けた '__proto__' という
+// プロジェクト名が Object.prototype と衝突し、`key in states` が常に true・
+// `states[key] = v` は own property を作らない（= その 1 件だけ状態を保存できない）。
 function projectKey(name: string | null): string {
   return name ?? CONSTANTS.PROJECT_RESERVED_KEY;
 }
@@ -8,16 +12,17 @@ function projectKey(name: string | null): string {
 export function isExpanded(name: string | null): boolean {
   const key = projectKey(name);
   const states = storage.getProjectStates();
-  if (key in states) return states[key]!;
+  const saved = states.get(key);
+  if (saved !== undefined) return saved;
   return storage.getProjectDefaultExpanded();
 }
 
 export function toggleExpanded(name: string | null): boolean {
   const key = projectKey(name);
   const states = storage.getProjectStates();
-  const current = key in states ? states[key]! : storage.getProjectDefaultExpanded();
+  const current = states.get(key) ?? storage.getProjectDefaultExpanded();
   const next = !current;
-  states[key] = next;
+  states.set(key, next);
   storage.setProjectStates(states);
   return next;
 }
@@ -30,18 +35,19 @@ export function toggleExpanded(name: string | null): boolean {
 export function migrateProjectState(oldName: string, newName: string): void {
   const states = storage.getProjectStates();
   const oldKey = projectKey(oldName);
-  if (!(oldKey in states)) return;
+  const saved = states.get(oldKey);
+  if (saved === undefined) return;
   const newKey = projectKey(newName);
-  if (!(newKey in states)) states[newKey] = states[oldKey]!;
-  delete states[oldKey];
+  if (!states.has(newKey)) states.set(newKey, saved);
+  states.delete(oldKey);
   storage.setProjectStates(states);
 }
 
 export function applyDefaultExpansion(newDefault: boolean, activeProjectNames: Array<string | null>): void {
   // 現存するプロジェクトのキーだけで作り直す。既存キーを引き継ぐと、削除済み
   // プロジェクトの状態が localStorage に永久に残り続ける。
-  const states: Record<string, boolean> = {};
-  for (const name of activeProjectNames) states[projectKey(name)] = newDefault;
+  const states = new Map<string, boolean>();
+  for (const name of activeProjectNames) states.set(projectKey(name), newDefault);
   storage.setProjectStates(states);
   storage.setProjectDefaultExpanded(newDefault);
 }
@@ -51,9 +57,9 @@ export function pruneProjectStates(activeProjectNames: Array<string | null>): vo
   const states = storage.getProjectStates();
   const keep = new Set(activeProjectNames.map(projectKey));
   let removed = false;
-  for (const key of Object.keys(states)) {
+  for (const key of [...states.keys()]) {
     if (!keep.has(key)) {
-      delete states[key];
+      states.delete(key);
       removed = true;
     }
   }
