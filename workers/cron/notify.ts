@@ -32,6 +32,21 @@ interface StaleRow {
   tz_offset: number;
 }
 
+// 1 回の cron 実行で使える D1 クエリ数と外部 fetch 数の全体予算。
+//
+// 個別の上限（STALE_ADVANCE_LIMIT=20、購読 20 件/コード）はどれも生きているが、
+// それらは互いに独立で、合計を抑える仕組みが無かった。すべての個別上限を守ったまま
+//   3(候補・stale の SELECT) + 1(購読 SELECT) + 14 候補 × 2 + stale 20 = 52 文
+//   3 タスク × 20 端末 = 60 fetch
+// に到達でき、Cloudflare Free の「50 D1 クエリ / 呼び出し」「50 subrequests / 呼び出し」を
+// 超える。超えた時点で同じ cron 内の一部の処理が失敗し、claim 残留や通知欠落へ連鎖する。
+//
+// 予算に収まらなかった候補は claim せずに見送る。候補クエリの窓は繰り返しで
+// RETRY_GRACE_SEC + 60 秒、単発で ONESHOT_CATCHUP_SEC + 60 秒あるので、次の分以降の
+// 実行で拾われる（取りこぼしではなく先送り）。
+const CRON_D1_BUDGET = 45;
+const CRON_FETCH_BUDGET = 45;
+
 // 送信が一時失敗（'failed'）した繰り返しリマインダーを再試行する猶予。
 // この間は候補クエリの窓に入り続け、毎分再試行される。
 const RETRY_GRACE_SEC = 600;
@@ -111,12 +126,18 @@ export async function handleNotifyCron(
 
   const candidates = [...recurring.results, ...oneShot.results];
 
+  // 予算の消費量。上の候補クエリ 2 本を消費済みとして数え始める。
+  let d1Used = 2;
+  let fetchUsed = 0;
+
   // 対象タスクの同期コード配下の全購読をまとめて引く（端末ごとに 1 行）。
   // チャンクごとの取得は互いに独立なので並列に投げる。
   const subsByCode = new Map<string, SubscriptionRow[]>();
   const codes = [...new Set(candidates.map((t) => t.sync_code))];
+  const codeChunks = chunk(codes, CHUNK_SIZE);
+  d1Used += codeChunks.length;
   const subsChunks = await Promise.all(
-    chunk(codes, CHUNK_SIZE).map((codeChunk) => {
+    codeChunks.map((codeChunk) => {
       const placeholders = codeChunk.map(() => '?').join(',');
       return env.DB.prepare(
         `SELECT sync_code, endpoint, subscription
@@ -126,8 +147,10 @@ export async function handleNotifyCron(
         .all<SubscriptionRow>();
     }),
   );
+  let totalSubs = 0;
   for (const subs of subsChunks) {
     for (const s of subs.results) {
+      totalSubs += 1;
       const list = subsByCode.get(s.sync_code);
       if (list) list.push(s);
       else subsByCode.set(s.sync_code, [s]);
@@ -139,10 +162,14 @@ export async function handleNotifyCron(
   // 共有する他タスクが同時に処理中の場合、古いスナップショット（subsByCode）
   // のままその endpoint へ二重に送信してしまう。
   const expiredEndpoints = new Set<string>();
+  // 後段の失効削除に必要な文数（最悪ケース = 全購読が失効）を先に取り置く。
+  const expiredReserve = Math.ceil(totalSubs / CHUNK_SIZE);
+
+  let deferred = 0;
 
   ctx.waitUntil(
     (async () => {
-      await Promise.allSettled(
+      const settled = await Promise.allSettled(
         candidates.map(async (task) => {
           // 完了済みの繰り返しタスクは「完了した期間より後の期間」のリマインダーだけ送る。
           // 完了時刻（updated_at）がリマインダーの属する期間の開始より前なら、境界を
@@ -157,6 +184,26 @@ export async function handleNotifyCron(
             if (task.updated_at >= start) return;
           }
 
+          // 同期コード配下の全端末へ配信する。
+          const subs = subsByCode.get(task.sync_code) ?? [];
+          // 送り先が無い（候補クエリの EXISTS 判定後に購読が削除された等）なら何もしない。
+          // claim を取ってすぐ取り下げる従来の経路は、結果が同じまま D1 を 2 文使う。
+          if (subs.length === 0) return;
+
+          // 予算の予約は「最初の await より前」＝同期部分で行う。candidates.map() は
+          // 各コールバックを最初の await まで同期的に実行するため、予約の順序は候補の
+          // 並び順で決定的になり、並行実行でも取り合いにならない。
+          // 1 候補あたりの D1 は claim INSERT + (advance UPDATE または claim DELETE) の 2 文。
+          if (
+            d1Used + 2 + expiredReserve > CRON_D1_BUDGET ||
+            fetchUsed + subs.length > CRON_FETCH_BUDGET
+          ) {
+            deferred += 1;
+            return; // claim を取らない = この候補は次分以降の実行に残る
+          }
+          d1Used += 2;
+          fetchUsed += subs.length;
+
           // 冪等ガード: (task_id, reminder_time) を原子的に予約し、初回だけ送信する。
           // cron の重複起動や窓の重なりが起きても二度送らない（at-most-once）。
           const claim = await env.DB.prepare(
@@ -167,8 +214,6 @@ export async function handleNotifyCron(
             .run();
           if (claim.meta.changes === 0) return; // 既に送信済み
 
-          // 同期コード配下の全端末へ配信する。
-          const subs = subsByCode.get(task.sync_code) ?? [];
           const results = await Promise.all(
             subs.map(async (sub) => ({
               sub,
@@ -194,8 +239,7 @@ export async function handleNotifyCron(
             if (result === 'expired') expiredEndpoints.add(sub.endpoint);
           }
 
-          // 1 台にも届かず、かつ一時失敗（'failed'）が含まれる、または購読が
-          // 0 件だった（EXISTS 判定後の削除競合など）場合は claim を取り下げて
+          // 1 台にも届かず、かつ一時失敗（'failed'）が含まれる場合は claim を取り下げて
           // 次分の実行で再試行する（繰り返しは RETRY_GRACE_SEC、単発は
           // ONESHOT_CATCHUP_SEC の窓内）。全滅が expired / permanent のみなら
           // 再試行しても届かないので claim は残す（'permanent' を再試行対象に
@@ -204,7 +248,7 @@ export async function handleNotifyCron(
           // 扱う（sent_reminders はタスク単位のため端末単位の再送はしない）。
           const okCount = results.filter((r) => r.result === 'ok').length;
           const failedCount = results.filter((r) => r.result === 'failed').length;
-          if (okCount === 0 && (failedCount > 0 || results.length === 0)) {
+          if (okCount === 0 && failedCount > 0) {
             await env.DB.prepare(
               `DELETE FROM sent_reminders WHERE task_id = ? AND reminder_time = ?`,
             )
@@ -222,6 +266,15 @@ export async function handleNotifyCron(
           await advanceRecurring(env, task, nowSec * 1000);
         }),
       );
+
+      // allSettled は理由を捨てるため、従来は claim 後の例外も D1 の上限超過も
+      // wrangler tail に何も出ないまま通知だけが欠けていた。運用で気づけるようにする。
+      for (const r of settled) {
+        if (r.status === 'rejected') console.error('[notify] candidate failed:', r.reason);
+      }
+      if (deferred > 0) {
+        console.warn(`[notify] ${deferred} candidate(s) deferred to a later run (budget)`);
+      }
 
       if (expiredEndpoints.size > 0) {
         for (const batch of chunk([...expiredEndpoints], CHUNK_SIZE)) {
@@ -251,11 +304,20 @@ export async function handleNotifyCron(
   // 毎分スキャンされ続けるだけになる（あとから購読すれば、その時点でこの
   // クエリの対象になり滞留分がまとめて解消される）。
   //
-  // LIMIT も必須。前進できない行（recurrence_rule の種別が不明・reminder_time の
-  // 書式が壊れている・offset が異常）は集合から永久に抜けないため、件数が増えると
-  // 1 回の cron が発行するクエリ数が青天井になり、D1 Free の「50 クエリ /
-  // Worker 呼び出し」を超えて cron 全体が毎分失敗する。書き込み側の検証
-  // （lww.ts の isValidPayload）と合わせて二重に塞ぐ。
+  // LIMIT も必須。件数が増えると 1 回の cron が発行するクエリ数が青天井になり、
+  // D1 Free の「50 クエリ / Worker 呼び出し」を超えて cron 全体が毎分失敗する。
+  // 上限は STALE_ADVANCE_LIMIT と「この実行の残予算」の小さいほうにする（候補処理が
+  // 予算を使い切っていれば stale クエリ自体を発行しない）。
+  const staleLimit = Math.min(
+    LIMITS.STALE_ADVANCE_LIMIT,
+    // -1 は stale クエリ自身の 1 文ぶん。1 行あたりの更新は最大 1 文。
+    Math.max(0, CRON_D1_BUDGET - d1Used - expiredReserve - 1),
+  );
+  if (staleLimit === 0) {
+    console.warn('[notify] stale recovery skipped this run (budget)');
+    return;
+  }
+
   const stale = await env.DB.prepare(
     `SELECT t.id, t.reminder_time, t.reminder_offset, t.recurrence_rule, t.tz_offset
      FROM tasks t
@@ -269,29 +331,62 @@ export async function handleNotifyCron(
      ORDER BY t.reminder_time
      LIMIT ?`,
   )
-    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC), LIMITS.STALE_ADVANCE_LIMIT)
+    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC), staleLimit)
     .all<StaleRow>();
 
   ctx.waitUntil(
     Promise.allSettled(
       stale.results.map(async (task) => {
-        const type = parseRecurrenceType(task.recurrence_rule);
-        if (!type) return;
-        const next = nextReminderAfter(
-          task.reminder_time,
-          type,
-          task.reminder_offset,
-          task.tz_offset,
-          nowSec * 1000,
-        );
-        if (next !== task.reminder_time) {
-          await env.DB.prepare(`UPDATE tasks SET reminder_time = ? WHERE id = ?`)
-            .bind(next, task.id)
+        const next = advancedReminderTime(task, nowSec * 1000);
+        if (next === null) {
+          // 前進できない行（recurrence_rule の種別が不明 = 旧 'custom' などの残骸、
+          // reminder_time が暦として不正で Date.parse が NaN）。
+          //
+          // このクエリは `ORDER BY reminder_time LIMIT n` なので、辞書順で早い位置に
+          // 前進不能な行が n 件あると **それ以降の正常な行が永久に回収されなくなる**。
+          // 書き込み側の検証（lww.ts）は新規の混入を塞ぐが、既にある行には効かない。
+          // reminder_time を NULL にすると候補クエリ・このクエリの双方から外れ、
+          // 占有が解ける。クライアントは起動時に自分で現周期を再計算して push し直すので
+          // 通知は復旧する（updated_at / server_seq は触らないので LWW は乱れない）。
+          console.warn(
+            `[notify] clearing un-advanceable reminder_time: task=${task.id} value=${task.reminder_time}`,
+          );
+          await env.DB.prepare(`UPDATE tasks SET reminder_time = NULL WHERE id = ?`)
+            .bind(task.id)
             .run();
+          return;
         }
+        // advancedReminderTime は「進まなかった」を null で返すので、ここは必ず別の値。
+        await env.DB.prepare(`UPDATE tasks SET reminder_time = ? WHERE id = ?`)
+          .bind(next, task.id)
+          .run();
       }),
     ),
   );
+}
+
+/**
+ * stale 行の次の発火時刻。前進できない行は null を返す。
+ * 「前進できない」= 繰り返し種別を解釈できないか、reminder_time が暦として不正
+ * （`advanceOnce` は必ず 1 周期以上進むため、正常な行で `next === 元の値` にはならない）。
+ */
+function advancedReminderTime(task: StaleRow, afterMs: number): string | null {
+  const type = parseRecurrenceType(task.recurrence_rule);
+  if (!type) return null;
+  let next: string;
+  try {
+    next = nextReminderAfter(
+      task.reminder_time,
+      type,
+      task.reminder_offset,
+      task.tz_offset,
+      afterMs,
+    );
+  } catch {
+    // Date の表現範囲を外れた（toISOString が RangeError）。この行はもう扱えない。
+    return null;
+  }
+  return next === task.reminder_time ? null : next;
 }
 
 async function advanceRecurring(
