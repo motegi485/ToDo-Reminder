@@ -37,10 +37,19 @@ export default function App() {
   // 起動時に Push 購読をサーバーへ登録し直す（自己修復）。ブラウザが購読を
   // ローテーションした場合や、サーバー側の購読行が失効判定で消えた場合でも、
   // 次回起動で通知が復旧する。許可済みの端末でのみ動き、新たな許可ダイアログは出ない。
+  //
+  // オンライン復帰時にも試す。起動時の 1 回だけだと、そのとき回線が切れていたり
+  // サーバーが応答しなかった場合、「ブラウザ側の購読はあるがサーバーには無い」状態が
+  // アプリを開き直すまで続き、その間は Push もローカル通知も届かない。
   useEffect(() => {
-    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-      subscribePush({ silent: true }).catch(() => {});
-    }
+    const resubscribe = () => {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        subscribePush({ silent: true }).catch(() => {});
+      }
+    };
+    resubscribe();
+    window.addEventListener('online', resubscribe);
+    return () => window.removeEventListener('online', resubscribe);
   }, []);
 
   useEffect(() => {
