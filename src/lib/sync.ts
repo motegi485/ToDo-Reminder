@@ -10,7 +10,7 @@ import type { Task } from '@/types';
 // クライアント側でも分割して送る。
 //
 // 40 にしている理由（50 ではなく）: D1 Free の上限は「50 クエリ / Worker 呼び出し」で、
-// push 1 回の発行文数は概ね `1 + ceil(N/40) + N`。N=50 だと 52 文で上限を超えうる。
+// push 1 回の発行文数は概ね `1 + ceil(N/40) + N`。N=50 だと 53 文で上限を超えうる。
 // **`workers/lib/chunk.ts` の CHUNK_SIZE と揃えること。**
 const PUSH_CHUNK_SIZE = 40;
 // 総試行回数（= 初回 1 回 + リトライ 2 回）。
