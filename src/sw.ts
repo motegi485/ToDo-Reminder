@@ -15,7 +15,7 @@ interface PushPayload {
 }
 
 // ビルド時に注入されるアプリシェル一覧をプリキャッシュし、オフラインのコールド起動でも
-// 画面が開けるようにする。autoUpdate なので新ビルドのアセットは次回起動で差し替わる。
+// 画面が開けるようにする。更新はページ側が入力中でないことを確認してから明示的に適用する。
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 // SPA: どのパス（/report, /settings 等）へ直接アクセスしてもキャッシュ済みの index.html を返す。

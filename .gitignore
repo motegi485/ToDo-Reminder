@@ -28,6 +28,3 @@ wrangler.toml
 
 # D1 manual export (contains real user data)
 backup-*.sql
-
-# 設計ドキュメント（いったん追跡外。追跡に切り替えるときはこの行を削除する）
-docs/

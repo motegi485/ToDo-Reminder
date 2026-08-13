@@ -1,0 +1,4 @@
+# 今回更新するテキストは OS に依存しない LF で追跡する。
+*.md text eol=lf
+*.ts text eol=lf
+.gitignore text eol=lf
