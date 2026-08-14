@@ -42,6 +42,8 @@ npm run preview
 2. `wrangler.toml` の設定を確認し、必ず `--local` を付ける。`--remote` を付けた操作はローカル検証ではない。
 3. ローカル D1 に migration を番号順に適用する。適用先がローカルであることを一回ごとに確認する。
 
+> `<database-name>` は差し込み位置を示す記号です。**山括弧ごと実際の DB 名へ置き換えてください。** PowerShell は `<` をリダイレクト用に予約しているため、そのまま実行するとパースエラーになります。
+
 ```powershell
 npx wrangler d1 execute <database-name> --local --file .\migrations\0001_initial.sql
 npx wrangler d1 execute <database-name> --local --file .\migrations\0002_add_server_seq.sql
@@ -49,6 +51,7 @@ npx wrangler d1 execute <database-name> --local --file .\migrations\0003_sent_re
 npx wrangler d1 execute <database-name> --local --file .\migrations\0004_add_tz_offset.sql
 npx wrangler d1 execute <database-name> --local --file .\migrations\0005_add_color.sql
 npx wrangler d1 execute <database-name> --local --file .\migrations\0006_push_subscriptions.sql
+npx wrangler d1 execute <database-name> --local --file .\migrations\0007_add_memo_columns.sql
 ```
 
 4. Worker をローカル起動する。Cron を確認する場合の trigger 方法は Wrangler のバージョンに依存するため、使用するバージョンの公式ドキュメントを確認してから行う。

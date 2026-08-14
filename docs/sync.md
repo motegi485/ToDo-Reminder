@@ -5,6 +5,11 @@
 `runSync()` は **push → pull** の順で実行します（`src/lib/sync.ts`）。
 pull で取り込んだ行をそのまま push し返す無駄を避けるためです。
 
+**メモも同じ経路をそのまま通ります。** メモは `tasks` の行（`kind === 'memo'`）なので、
+push の抽出条件・チャンク分割・LWW・カーソル・`switchSyncCode` はいずれも無改造です
+（[data-model.md](./data-model.md#メモは-tasks-に同居する)）。この「同期基盤に手を入れずに済むこと」が、
+メモを専用テーブルにしなかった理由そのものです。
+
 ```
 runSync()
  ├─ push(syncCode, lastPushedAt)          ← 失敗しても pull へ進む

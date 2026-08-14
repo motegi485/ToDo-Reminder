@@ -3,17 +3,21 @@ import { useSearchParams } from 'react-router-dom';
 import { ListTodo } from 'lucide-react';
 import { FAB } from '@/components/ui/FAB';
 import { TaskFormDialog } from '@/components/task/TaskFormDialog';
+import { MemoFormDialog } from '@/components/memo/MemoFormDialog';
+import type { EntryKind } from '@/components/task/entryKind';
 import { ProjectGroup, emitProjectStatesChanged } from '@/components/project/ProjectGroup';
 import { ProjectChips, type Selection } from '@/components/project/ProjectChips';
 import { EmptyState } from '@/components/task/EmptyState';
 import { SortMenu } from '@/components/task/SortMenu';
 import { useProjectGroups } from '@/hooks/useProjects';
 import { isExpanded, pruneProjectStates, toggleExpanded } from '@/lib/projectExpansion';
-import type { Task } from '@/types';
+import { isMemo, type Task } from '@/types';
 
 export default function ListPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
+  // 追加フォームで何を作るか。一覧には切替 UI を置かず、切り替えるのはフォームの中だけ。
+  const [formEntity, setFormEntity] = useState<EntryKind>('task');
   const [searchParams, setSearchParams] = useSearchParams();
 
   // プロジェクトチップの選択状態。永続化しない（リロードで「すべて」に戻る）。
@@ -138,11 +142,14 @@ export default function ListPage() {
 
   const handleAdd = () => {
     setEditing(null);
+    setFormEntity('task');
     setFormOpen(true);
   };
 
-  const handleEdit = (task: Task) => {
-    setEditing(task);
+  // 編集は対象の行の種別で開くフォームを決める（編集中は種別を変えられない）。
+  const handleEdit = (row: Task) => {
+    setEditing(row);
+    setFormEntity(isMemo(row) ? 'memo' : 'task');
     setFormOpen(true);
   };
 
@@ -208,12 +215,22 @@ export default function ListPage() {
         })
       )}
 
-      <FAB onClick={handleAdd} />
+      <FAB onClick={handleAdd} label="タスクまたはメモを追加" />
+      {/* 種別ごとに別のダイアログを出す。新規作成のときだけフォーム先頭の
+          セグメントで切り替えられ、その切替は open するダイアログの入れ替えになる。 */}
       <TaskFormDialog
-        open={formOpen}
+        open={formOpen && formEntity === 'task'}
         onClose={() => setFormOpen(false)}
         editing={editing}
         initialProject={initialProject}
+        onEntityChange={setFormEntity}
+      />
+      <MemoFormDialog
+        open={formOpen && formEntity === 'memo'}
+        onClose={() => setFormOpen(false)}
+        editing={editing}
+        initialProject={initialProject}
+        onEntityChange={setFormEntity}
       />
     </div>
   );

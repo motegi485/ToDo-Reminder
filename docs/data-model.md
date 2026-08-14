@@ -21,15 +21,52 @@ DB 名 `TodoDB`、最新バージョン **3**（`src/lib/db.ts`）。
 | ストア | キー | インデックス | 説明 |
 |---|---|---|---|
 | `users` | `sync_code` | — | 同期コードと Push 購読情報 |
-| `tasks` | `id` (UUID v4) | `sync_code, status, reminder_time, due_date, project_name, created_at, updated_at` | タスク本体 |
+| `tasks` | `id` (UUID v4) | `sync_code, status, reminder_time, due_date, project_name, created_at, updated_at` | **タスクとメモ**の本体（`kind` で判別） |
 | `meta` | `key` | — | 補助メタ（拡張用・現在ほぼ未使用） |
 | `completions` | `id` | `task_id, completed_at` | 繰り返しタスクの完了履歴 |
+
+`kind` はインデックスしていません。既存行は `kind` が `undefined` のため `where('kind')` に載らず取りこぼすので、
+絞り込みはメモリ上のフィルタ（`isMemo()`）で行います。そのため列の追加だけで済み、Dexie のバージョンは 3 のままです。
 
 ### `completions` が別ストアな理由
 
 繰り返しタスクは復活すると `status` が `completed` → `active` に戻るため、**タスク行だけではいつ完了したかの
 履歴が残りません**。レポートのストリーク・週間達成率・月次バーはこの履歴が必要なので、完了のたびに
 別ストアへ追記します。ローカル専用で、サーバーには同期されません。
+
+### メモは `tasks` に同居する
+
+「メモ」（電話番号・メールアドレス・パスワードなどの控え）はタスクの兄弟エンティティですが、
+**専用ストア／テーブルを持たず `tasks` の行として保存します。** 判別は `kind` 列だけで行います。
+
+| `kind` | 意味 |
+|---|---|
+| `null` | タスク（既存行はすべてこちら） |
+| `'memo'` | メモ |
+
+**なぜ列追加なのか**: `workers/lib/lww.ts` の `applyLWW` は SQL 文まで `tasks` 決め打ちで、pull カーソル
+（`server_seq`）もテーブル単位です。表を増やすと同期基盤一式（条件付き UPSERT、カーソル、テナント分離、
+`switchSyncCode` の保全判定）を複製することになります。列追加なら push / pull・LWW・プロジェクト分け・
+同期コード切替が**無改造でそのまま効きます**。
+
+**なぜ `type` を拡張しないのか**: `0001_initial.sql` の `CHECK (type IN ('simple','quantitative'))` は今も有効で、
+SQLite は列 CHECK を後から緩められません。`type` に `'memo'` を足すと本番 D1 に対してテーブル再構築が必要に
+なります。メモ行は `type='simple'` のまま保存し、判別を `kind` に分けることでこれを回避しています。
+
+**メモ行が常に満たす条件**（`src/lib/memoRepo.ts` が保証する）
+
+| 列 | 値 | 理由 |
+|---|---|---|
+| `status` | `'active'`（削除時のみ `'deleted'`） | 完了の概念がない |
+| `type` | `'simple'` 固定 | D1 の CHECK 制約を満たすため |
+| `reminder_time` / `reminder_offset` / `recurrence_rule` / `due_date` | すべて `null` | 通知 Cron の候補クエリにも、起動中のローカル通知にも載せない |
+| `tz_offset` | `null` | 繰り返しの前進計算に関わらない |
+| `project_name` / `sort_order` / `color` | 既存の意味のまま | グルーピング・並べ替え・アクセント色を流用する |
+
+**「`active` を数えている箇所」はメモを外すこと。** メモは完了しないため常に `active` です。数え漏らすと、
+未完了タスクが 0 のプロジェクトでも「未完了 N件」と表示されます。現在の対象は 3 箇所:
+`src/hooks/useProjects.ts` の `remaining`（プロジェクトチップと一覧ヘッダーが使う）、
+`src/components/project/ProjectGroup.tsx` の見出しの分数、`src/lib/reports.ts` の `getWeeklyCompletionRate`。
 
 ### v3 マイグレーション（`src/lib/db.ts`）
 
@@ -64,9 +101,16 @@ CREATE TABLE tasks (
   tz_offset       INTEGER,                   -- 端末の UTC オフセット分（JST=+540）
   color           TEXT,                      -- パレット key。null = 自動配色
   server_seq      INTEGER NOT NULL DEFAULT 0,-- サーバー採番。pull カーソル専用
+  kind            TEXT,                      -- 'memo' / NULL(=タスク)。行の種別
+  memo_type       TEXT,                      -- 'phone'/'email'/'password'/'other'
+  memo_value      TEXT,                      -- メモの値（コピー対象）
   FOREIGN KEY (sync_code) REFERENCES users(sync_code)
 );
 ```
+
+`kind` / `memo_type` / `memo_value` には **CHECK 制約を付けていません**。`color` と同じ理由で、
+値の集合が将来増えるものにサーバー側制約を持たせると、クライアントを更新した瞬間に同期が
+`CHECK constraint failed` で全滅します。サーバーはこの 3 列を解釈せず、長さと型だけ見て素通しします。
 
 **インデックス**（0006 適用後の最終形）
 
@@ -144,6 +188,7 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 | `0004_add_tz_offset.sql` | `tasks.tz_offset` 追加。既存行は NULL（クライアントが次回 revive 時にバックフィル） |
 | `0005_add_color.sql` | `tasks.color` 追加。**CHECK 制約は付けない**（パレットを増やしても同期が壊れないように） |
 | `0006_push_subscriptions.sql` | 購読表の新設 + `users.push_subscription` からの自動移行 + `reminder_time` インデックスの張り直し |
+| `0007_add_memo_columns.sql` | `tasks.kind` / `memo_type` / `memo_value` 追加。**CHECK 制約は付けない**。既存行は NULL（= タスク） |
 
 ### 適用のルール
 
@@ -194,7 +239,9 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 
 ## 型定義
 
-`src/types/index.ts` に `Task` / `SortOrder` / `CompletionLog` / `RecurrenceRule` / `FontSize` などがあります。
+`src/types/index.ts` に `Task` / `Memo` / `MemoType` / `SortOrder` / `CompletionLog` / `RecurrenceRule` /
+`FontSize` などがあります。`Memo` は `Task` の絞り込み型で、実体は同じ 1 行です。判定は同ファイルの
+`isMemo(row)` を使います（既存行は `kind` が `undefined` になり得るため厳密一致で見ます）。
 サーバー側は `workers/lib/lww.ts` の `TaskRow` / `TaskPayload` が対応物です（**別定義**なので両方直す）。
 
 ```ts
@@ -216,6 +263,9 @@ type RecurrenceRule = { type: 'daily' | 'weekly' | 'monthly' };
 | `ID_MAX_LENGTH` | 64 | （UUID v4 は 36 文字） |
 | `DUE_DATE_MAX_LENGTH` | 32 | — |
 | `COLOR_MAX_LENGTH` | 32 | — |
+| `MEMO_VALUE_MAX_LENGTH` | 500 | `CONSTANTS.MEMO_VALUE_MAX_LENGTH` |
+| `MEMO_TYPE_MAX_LENGTH` | 32 | — |
+| `KIND_MAX_LENGTH` | 16 | — |
 | `RECURRENCE_RULE_MAX_BYTES` | 512 | JavaScript の UTF-16 コード単位の長さで判定する上限（定数名は既存のまま） |
 | `MAX_TASKS_PER_PUSH` | 40 | `PUSH_CHUNK_SIZE` / `CHUNK_SIZE` と同値 |
 | `TZ_OFFSET_MIN` / `MAX` | -900 / 900 | 実在するのは -720..+840 |

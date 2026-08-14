@@ -20,6 +20,11 @@ interface TaskRow {
   tz_offset: number | null;
   // チェックボックスのアクセント色。サーバーは解釈せず素通しで保存・返却するだけ。
   color: string | null;
+  // 行の種別（'memo' / null）とメモの内容。color / project_name と同じく
+  // サーバーは一切解釈せず、長さと型だけ見て素通しで保存・返却する。
+  kind: string | null;
+  memo_type: string | null;
+  memo_value: string | null;
 }
 
 export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
@@ -55,6 +60,9 @@ function payloadToRow(task: TaskPayload): TaskRow {
     updated_at: task.updated_at,
     tz_offset: task.tz_offset ?? null,
     color: task.color ?? null,
+    kind: task.kind ?? null,
+    memo_type: task.memo_type ?? null,
+    memo_value: task.memo_value ?? null,
   };
 }
 
@@ -80,6 +88,9 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
     updated_at: row.updated_at as number,
     tz_offset: (row.tz_offset as number | null) ?? null,
     color: (row.color as string | null) ?? null,
+    kind: (row.kind as string | null) ?? null,
+    memo_type: (row.memo_type as string | null) ?? null,
+    memo_value: (row.memo_value as string | null) ?? null,
   };
 }
 
@@ -140,6 +151,14 @@ function isValidPayload(t: TaskPayload, nowMs: number): boolean {
   if (!isNullableString(t.due_date, LIMITS.DUE_DATE_MAX_LENGTH)) return false;
   if (!isNullableString(t.project_name, LIMITS.PROJECT_NAME_MAX_LENGTH)) return false;
   if (!isNullableString(t.color, LIMITS.COLOR_MAX_LENGTH)) return false;
+
+  // メモ関連の 3 列は color / project_name と同じ「素通し」扱い（長さと型だけ見る）。
+  // 列挙値を検証しないのは、サーバーがこれらを一切解釈しないため。
+  // ここで集合を固定すると、クライアントに種類を 1 つ足した瞬間に
+  // その種類のメモだけがサイレントに同期されなくなる。
+  if (!isNullableString(t.kind, LIMITS.KIND_MAX_LENGTH)) return false;
+  if (!isNullableString(t.memo_type, LIMITS.MEMO_TYPE_MAX_LENGTH)) return false;
+  if (!isNullableString(t.memo_value, LIMITS.MEMO_VALUE_MAX_LENGTH)) return false;
 
   // reminder_time は Date.toISOString() の出力そのものだけを許す。
   // cron の候補クエリは辞書順比較でインデックスを使うため、書式が崩れると
@@ -268,8 +287,9 @@ export async function applyLWW(
           `INSERT INTO tasks
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
-            project_name, sort_order, created_at, updated_at, tz_offset, color, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+            project_name, sort_order, created_at, updated_at, tz_offset, color,
+            kind, memo_type, memo_value, server_seq)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
                    MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))
            ON CONFLICT(id) DO UPDATE SET
              sync_code       = excluded.sync_code,
@@ -288,6 +308,9 @@ export async function applyLWW(
              updated_at      = excluded.updated_at,
              tz_offset       = excluded.tz_offset,
              color           = excluded.color,
+             kind            = excluded.kind,
+             memo_type       = excluded.memo_type,
+             memo_value      = excluded.memo_value,
              server_seq      = excluded.server_seq
            WHERE excluded.updated_at >= tasks.updated_at
              AND (tasks.sync_code = excluded.sync_code OR tasks.sync_code = ?)`,
@@ -310,6 +333,9 @@ export async function applyLWW(
           row.updated_at,
           row.tz_offset,
           row.color,
+          row.kind,
+          row.memo_type,
+          row.memo_value,
           syncCode,
           nowMs,
           // null を渡すと SQL の比較結果が NULL（= 偽）になるため、申告なしの移動は

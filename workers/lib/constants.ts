@@ -8,6 +8,7 @@
 // 対応表:
 //   TITLE_MAX_LENGTH        <-> CONSTANTS.TITLE_MAX_LENGTH
 //   PROJECT_NAME_MAX_LENGTH <-> CONSTANTS.PROJECT_NAME_MAX_LENGTH
+//   MEMO_VALUE_MAX_LENGTH   <-> CONSTANTS.MEMO_VALUE_MAX_LENGTH
 export const LIMITS = {
   /** タスク名。クライアントは入力欄の maxLength でも同値を強制する。 */
   TITLE_MAX_LENGTH: 200,
@@ -21,6 +22,16 @@ export const LIMITS = {
   COLOR_MAX_LENGTH: 32,
   /** recurrence_rule を JSON 文字列化した後のバイト長。 */
   RECURRENCE_RULE_MAX_BYTES: 512,
+
+  /**
+   * メモの値（memo_value）。クライアントは入力欄の maxLength でも同値を強制する。
+   * サーバーは中身を解釈せず、長さだけを見る（color / project_name と同じ素通し扱い）。
+   */
+  MEMO_VALUE_MAX_LENGTH: 500,
+  /** メモの種類（memo_type）。'phone' / 'email' / 'password' / 'other' の想定。 */
+  MEMO_TYPE_MAX_LENGTH: 32,
+  /** 行の種別（kind）。'memo' の想定。 */
+  KIND_MAX_LENGTH: 16,
 
   /**
    * 1 リクエストで受け付けるタスク件数。`chunk.ts` の CHUNK_SIZE と同値にする。

@@ -1,5 +1,5 @@
 import { CONSTANTS } from './constants';
-import type { RecurrenceRule, TaskType } from '@/types';
+import type { MemoType, RecurrenceRule, TaskType } from '@/types';
 import { periodMinutes } from './recurrence';
 
 export interface FormValues {
@@ -97,6 +97,51 @@ export function validateForm(
   }
 
   // V-9 project_name
+  if (v.project_name !== null) {
+    const err = projectNameError(v.project_name.trim());
+    if (err) errors.project_name = err;
+  }
+
+  return errors;
+}
+
+// ── メモ ────────────────────────────────────────────────────────────────
+
+export interface MemoFormValues {
+  title: string;
+  memo_type: MemoType;
+  memo_value: string;
+  project_name: string | null;
+  color: string | null;
+}
+
+export type MemoFieldKey = 'title' | 'memo_value' | 'project_name';
+
+export type MemoValidationErrors = Partial<Record<MemoFieldKey, string>>;
+
+/**
+ * メモの入力チェック。メモは期限・リマインダー・繰り返しを持たないため、
+ * 時刻まわりの検証（V-4/V-5/V-5'/V-7）は一切ない。
+ * プロジェクト名は projectNameError() をタスク側と共有する。
+ */
+export function validateMemoForm(v: MemoFormValues): MemoValidationErrors {
+  const errors: MemoValidationErrors = {};
+
+  const title = v.title.trim();
+  if (title.length === 0) {
+    errors.title = 'メモの名前を入力してください';
+  } else if (title.length > CONSTANTS.TITLE_MAX_LENGTH) {
+    errors.title = `メモの名前は ${CONSTANTS.TITLE_MAX_LENGTH} 文字以内にしてください`;
+  }
+
+  // 値は trim しない: パスワードは前後の空白も有効な文字になり得るため、
+  // 「空白だけでないこと」の判定にだけ trim を使い、保存は入力そのままにする。
+  if (v.memo_value.trim().length === 0) {
+    errors.memo_value = '値を入力してください';
+  } else if (v.memo_value.length > CONSTANTS.MEMO_VALUE_MAX_LENGTH) {
+    errors.memo_value = `値は ${CONSTANTS.MEMO_VALUE_MAX_LENGTH} 文字以内にしてください`;
+  }
+
   if (v.project_name !== null) {
     const err = projectNameError(v.project_name.trim());
     if (err) errors.project_name = err;

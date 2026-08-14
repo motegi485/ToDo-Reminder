@@ -9,6 +9,8 @@ interface Props {
   /** 「自動」スウォッチのプレビュー用（現在の種類・期限の自動色を表示する）。 */
   type: TaskType;
   hasDue: boolean;
+  /** 見出し文言。メモではチェックボックスが無いので呼び出し側が差し替える。 */
+  label?: string;
 }
 
 const RING = 'ring-2 ring-offset-2 ring-slate-900 dark:ring-slate-100 ring-offset-white dark:ring-offset-slate-900';
@@ -28,14 +30,14 @@ function CheckMark() {
   );
 }
 
-export function ColorPicker({ value, onChange, type, hasDue }: Props) {
+export function ColorPicker({ value, onChange, type, hasDue, label = 'チェックの色' }: Props) {
   // 「自動」を選んだときに実際に使われる色（種類×期限の既定配色）。
   const autoAccent = accentFor(type, hasDue, null);
 
   return (
     <div className="space-y-2">
-      <span className="text-[0.9375rem] font-medium">チェックの色</span>
-      <div role="radiogroup" aria-label="チェックの色" className="flex flex-wrap gap-2.5">
+      <span className="text-[0.9375rem] font-medium">{label}</span>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2.5">
         {/* 自動（種類に応じる） */}
         <button
           type="button"
