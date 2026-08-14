@@ -3,13 +3,15 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '@/lib/db';
 import { compareProjectGroups } from '@/lib/sort';
 import { useSortOrder } from '@/hooks/useSortOrder';
-import type { SortOrder, Task } from '@/types';
+import { isMemo, type SortOrder, type Task } from '@/types';
 
 // コンポーネントの ProjectGroup（components/project/ProjectGroup.tsx）と紛らわしい
 // ため Data 接尾辞。フックの戻り値専用の内部型。
 interface ProjectGroupData {
   name: string | null;
+  /** タスクとメモが混在する。種別は `kind` で見分ける（一覧は両方を同じ列に並べる）。 */
   tasks: Task[];
+  /** 未完了「タスク」の数。メモは完了の概念を持たないので数えない。 */
   remaining: number;
 }
 
@@ -34,7 +36,10 @@ function buildGroups(tasks: Task[]): GroupMeta[] {
       g = { key, name: t.project_name, tasks: [], remaining: 0, oldestCreatedAt: t.created_at };
       map.set(key, g);
     }
-    if (t.status === 'active') g.remaining++;
+    // メモは完了の概念を持たず常に active なので、「未完了件数」には数えない。
+    // ここを数えてしまうと、未完了タスクが 0 のプロジェクトでもチップやヘッダーが
+    // 「未完了 N件」と表示してしまう。
+    if (t.status === 'active' && !isMemo(t)) g.remaining++;
     if (t.created_at < g.oldestCreatedAt) g.oldestCreatedAt = t.created_at;
     g.tasks.push(t);
   }

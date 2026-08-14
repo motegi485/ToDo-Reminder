@@ -11,7 +11,8 @@ import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
 // 手動並べ替えの端（先頭/末尾）へ置くときのマージン、および衝突時リナンバーの等間隔幅。
 const REORDER_STEP = 1000;
 
-function generateId(): string {
+/** UUID v4 を生成する。memoRepo からも使うため export している。 */
+export function generateId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -39,7 +40,8 @@ function syncCode(): string {
   return storage.getSyncCode() ?? '';
 }
 
-function normalizeProjectName(name: string | null): string | null {
+/** 前後の空白を落とし、空文字は null（＝未分類）にする。memoRepo からも使う。 */
+export function normalizeProjectName(name: string | null): string | null {
   if (name === null) return null;
   const trimmed = name.trim();
   return trimmed.length === 0 ? null : trimmed;
@@ -99,6 +101,11 @@ function buildTask(input: TaskInput, base?: Task): Task {
     tz_offset: -new Date().getTimezoneOffset(),
     // 既知パレット key のみ保持。未知/未指定は null（=自動配色）に落とす。
     color: normalizeColor(input.color),
+    // タスクはメモではない。メモ専用の列は常に null に固定する
+    // （タスクとメモは同じストアに同居し、kind だけで区別する）。
+    kind: null,
+    memo_type: null,
+    memo_value: null,
   };
 }
 
@@ -106,8 +113,11 @@ function buildTask(input: TaskInput, base?: Task): Task {
  * プロジェクト内 active の最大 effective + 1 と now の大きい方を返す（active が無ければ now）。
  * 新規タスクを常に最上部へ置くための sort_order。null プロジェクトも扱えるよう、
  * where('project_name').equals(null) は使えないためメモリフィルタで集める。
+ *
+ * メモも status='active' としてこの並び空間を共有する（一覧で混在するため、
+ * 新規のメモも新規タスクと同じく最上部に来るのが自然）。memoRepo からも使う。
  */
-async function topSortOrder(projectName: string | null): Promise<number> {
+export async function topSortOrder(projectName: string | null): Promise<number> {
   const actives = (await db.tasks.where('status').equals('active').toArray()).filter(
     (t) => t.project_name === projectName,
   );

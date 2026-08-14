@@ -51,6 +51,8 @@
 
 3. `migrations/` を番号順に、一つずつ対象 D1 へ適用する。既に適用済みかを先に確認し、同じ migration を推測で再実行しない。
 
+   > `<database-name>` は差し込み位置を示す記号です。**山括弧ごと実際の DB 名へ置き換えてください。** PowerShell は `<` をリダイレクト用に予約しているため、そのまま実行すると「演算子 '<' は、今後の使用のために予約されています」で失敗します。DB 名は `wrangler.toml` の `database_name` にあります。
+
    ```powershell
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0001_initial.sql
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0002_add_server_seq.sql
@@ -58,6 +60,7 @@
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0004_add_tz_offset.sql
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0005_add_color.sql
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0006_push_subscriptions.sql
+   npx wrangler d1 execute <database-name> --remote --file .\migrations\0007_add_memo_columns.sql
    ```
 
 4. 承認済みの鍵生成方法で VAPID 鍵ペアを作り、公開鍵をフロント設定と Worker 実行時設定に、秘密鍵を Worker Secret に設定する。このリポジトリには VAPID 鍵を生成する固定済みのツールやスクリプトはありません。未固定のパッケージをその場で追加して生成するのではなく、組織で承認した方法を使います。
@@ -97,6 +100,14 @@
 スキーマ追加・変更を伴う場合は、必ず **migration 適用 → Worker デプロイ → Pages デプロイ** の順にします。Worker と Pages の片方だけを変える場合も、対象外の成果物を意図せず上書きしないよう、デプロイ対象を明記します。
 
 dirty worktree の警告を回避するためだけにデプロイ用フラグを追加しません。未コミット差分からデプロイする必要がある場合は、その差分、成果物、理由を人間が明示的に記録して承認します。
+
+### メモ機能を含むリリースの注意
+
+**メモを使い始める前に、そのデータを見るすべての端末をこのリリースへ更新してください。**
+
+pull は同期コード配下の全行を返すため、更新していない端末にもメモの行が届きます。その端末は `kind` を解釈できず、**メモを中身のない普通のタスクとして一覧に表示し、完了操作までできてしまいます**。サーバー側でこれを防ぐ手段はありません（配布を絞る仕組みが無く、行を隠すと同期の一貫性が崩れます）。
+
+Pages は即時に切り替わりますが、既に開いている端末は Service Worker の更新が適用されるまで旧版のままです。更新の反映を確認してからメモを作成してください。
 
 ### ロールバック
 

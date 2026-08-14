@@ -18,12 +18,13 @@ import {
 } from '@dnd-kit/sortable';
 import { TaskCard } from '@/components/task/TaskCard';
 import { SortableTaskCard } from '@/components/task/SortableTaskCard';
+import { SortableMemoCard } from '@/components/memo/SortableMemoCard';
 import { RenameProjectDialog } from './RenameProjectDialog';
 import { sortTasksInGroup } from '@/lib/sort';
 import { reorderTask } from '@/lib/taskRepo';
 import { useFlipReorder } from '@/hooks/useFlipReorder';
 import { isExpanded, toggleExpanded } from '@/lib/projectExpansion';
-import type { Task } from '@/types';
+import { isMemo, type Task } from '@/types';
 
 interface Props {
   name: string | null;
@@ -84,9 +85,13 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'acc
   const isUncategorized = name === null;
 
   // active は effective 降順（手動並べ替え可）、completed は達成順（最初の完了が最下部）に並べる。
+  // メモは常に active なので、タスクと混ざったまま同じ並べ替え空間に入る。
   const ordered = sortTasksInGroup(tasks);
   const activeTasks = ordered.filter((t) => t.status === 'active');
   const completedTasks = ordered.filter((t) => t.status === 'completed');
+  // 見出しの「完了/全体」はタスクだけを数える。メモは完了の概念を持たないため、
+  // 分母に入れると分数が読めなくなる（メモしか無いグループが 0/3 に見える）。
+  const taskCount = tasks.filter((t) => !isMemo(t)).length;
   const sortedActiveIds = activeTasks.map((t) => t.id);
   const activeIdsKey = sortedActiveIds.join('|');
 
@@ -169,7 +174,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'acc
             {nameContent}
             <span className="flex-1" />
             <span className="text-sm font-normal text-slate-400 dark:text-slate-500">
-              {completedTasks.length}/{tasks.length}
+              {completedTasks.length}/{taskCount}
             </span>
           </h2>
         ) : (
@@ -186,7 +191,7 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'acc
             />
             <span className="flex-1" />
             <span className="text-sm text-slate-400 dark:text-slate-500">
-              {completedTasks.length}/{tasks.length}
+              {completedTasks.length}/{taskCount}
             </span>
           </button>
         )}
@@ -239,9 +244,15 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'acc
             onDragCancel={() => setIsDragging(false)}
           >
             <SortableContext items={displayActiveIds} strategy={verticalListSortingStrategy}>
-              {displayActive.map((t) => (
-                <SortableTaskCard key={t.id} task={t} onEdit={onEdit} />
-              ))}
+              {/* タスクとメモは同じ列に混在する。種別はカードの見た目
+                  （丸チェック / コピーアイコン）で区別し、並べ替えは両方に効く。 */}
+              {displayActive.map((t) =>
+                isMemo(t) ? (
+                  <SortableMemoCard key={t.id} memo={t} onEdit={onEdit} />
+                ) : (
+                  <SortableTaskCard key={t.id} task={t} onEdit={onEdit} />
+                ),
+              )}
             </SortableContext>
           </DndContext>
           {completedTasks.map((t) => (
