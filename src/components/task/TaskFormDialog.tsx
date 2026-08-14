@@ -10,6 +10,7 @@ import { createTask, updateTask } from '@/lib/taskRepo';
 import { holdAppUpdate } from '@/lib/appUpdate';
 import { DEFAULT_TASK_COLOR } from '@/lib/taskColors';
 import { showToast } from '@/components/ui/Toast';
+import { ENTRY_KIND_OPTIONS, type EntryKind } from './entryKind';
 import type { Task, TaskType } from '@/types';
 
 interface Props {
@@ -19,6 +20,8 @@ interface Props {
   // 単一プロジェクトで絞り込み中に FAB から新規作成した場合のプロジェクト名初期値。
   // editing が無い（新規作成）ときのみ適用する（既存タスクの編集時には絶対に使わない）。
   initialProject?: string | null;
+  // 新規作成時に「タスク / メモ」を切り替える。編集時は種別を変えないので呼ばれない。
+  onEntityChange?: (next: EntryKind) => void;
 }
 
 const TYPE_OPTIONS = [
@@ -69,7 +72,13 @@ function defaultReminderAt(): string {
   return d.toISOString();
 }
 
-export function TaskFormDialog({ open, onClose, editing, initialProject }: Props) {
+export function TaskFormDialog({
+  open,
+  onClose,
+  editing,
+  initialProject,
+  onEntityChange,
+}: Props) {
   const [values, setValues] = useState<FormValues>(emptyValues);
   const [submitting, setSubmitting] = useState(false);
   // 編集ダイアログを開いた時点の DB 上の絶対時刻リマインダー（非繰り返しのみ）。
@@ -212,6 +221,16 @@ export function TaskFormDialog({ open, onClose, editing, initialProject }: Props
     >
       <div className="p-5 space-y-4">
         <h2 className="text-xl font-semibold">{editing ? 'タスクを編集' : 'タスクを追加'}</h2>
+
+        {/* 新規作成時のみ、タスクとメモを切り替えられる（編集時は種別を変えない）。 */}
+        {!editing && onEntityChange && (
+          <SegmentedControl
+            options={ENTRY_KIND_OPTIONS}
+            value="task"
+            onChange={onEntityChange}
+            ariaLabel="追加する種類"
+          />
+        )}
 
         <div className="space-y-1">
           <label className="text-[0.9375rem] font-medium" htmlFor="task-title">

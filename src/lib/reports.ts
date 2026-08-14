@@ -1,6 +1,6 @@
 import { db } from './db';
 import { startOfDay, startOfWeek } from './recurrence';
-import type { Task } from '@/types';
+import { isMemo, type Task } from '@/types';
 
 function dayKey(d: Date): string {
   const y = d.getFullYear();
@@ -18,7 +18,9 @@ export interface WeeklyCompletionRate {
 export async function getWeeklyCompletionRate(now: Date = new Date()): Promise<WeeklyCompletionRate> {
   const weekStart = startOfWeek(now).getTime();
   const tasks = await db.tasks.where('updated_at').above(weekStart).toArray();
-  const inWeek = tasks.filter((t) => t.status !== 'deleted');
+  // メモは達成率の対象外。メモは完了しないので、数えると分母だけが増えて
+  // 「メモを足しただけで達成率が下がる」ことになる。
+  const inWeek = tasks.filter((t) => t.status !== 'deleted' && !isMemo(t));
   // 今週中に完了した繰り返しタスク（復活して active に戻っていても完了扱いにする）。
   const recurDoneIds = new Set(
     (await db.completions.where('completed_at').above(weekStart).toArray()).map((c) => c.task_id),
@@ -76,6 +78,9 @@ export async function getMonthlyCompletions(days: number = 30, now: Date = new D
   // 非繰り返しは完了タスクの updated_at、繰り返しは完了ログを集計する。
   const tasks = await db.tasks.where('updated_at').above(startMs).toArray();
   for (const t of tasks) {
+    // メモは 'completed' にならないので実際には素通りするが、条件を明示しておく
+    // （将来メモに状態が増えたときに黙って集計へ混ざらないように）。
+    if (isMemo(t)) continue;
     if (t.status === 'completed' && t.recurrence_rule == null) bump(t.updated_at);
   }
   const logs = await db.completions.where('completed_at').above(startMs).toArray();
