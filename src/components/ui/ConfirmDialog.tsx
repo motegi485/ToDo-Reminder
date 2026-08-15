@@ -25,7 +25,11 @@ export function ConfirmDialog({
     <Modal open={open} onClose={onCancel} ariaLabel={title}>
       <div className="p-5 space-y-4">
         <h2 className="text-base font-semibold">{title}</h2>
-        {description && <p className="text-sm text-slate-600 dark:text-slate-300">{description}</p>}
+        {/* whitespace-pre-line: description に改行を入れて情報を分けたい呼び出し側がある
+            （例: 切り替え先の同期コードを独立した行に出す）。単一行の呼び出しには影響しない。 */}
+        {description && (
+          <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line">{description}</p>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"

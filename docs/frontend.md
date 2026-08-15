@@ -230,12 +230,27 @@ const tasks = useLiveQuery(() => db.tasks.where('sync_code').equals(code).toArra
 
 | コンポーネント | 内容 |
 |---|---|
-| `SyncCodeCard` | 現在の同期コードを表示（マスクなし）・コピー・`navigator.share` で共有 |
-| `SyncFromOtherDevice` | 他端末のコードを入力して `switchSyncCode()` |
+| `SyncCodeCard` | 現在の同期コードを**既定で伏せ字**表示（目のアイコンで切替）・コピー・`navigator.share` で共有・**QR の表示切替** |
+| `SyncQrCode` | 同期コードの QR をインライン SVG で描画（表示専用） |
+| `SyncFromOtherDevice` | 他端末のコードを入力、または **QR を読み取って**入力欄を埋め、`switchSyncCode()` |
+| `SyncQrScanner` | カメラで QR を読み取り、妥当な同期コードだけを呼び出し側へ返す |
 | `NotificationStatus` | 通知許可の状態表示／Push 再購読／**この端末の通知を停止・再開**（`todo_push_disabled`） |
 | `DisplaySettings` | ダークモード・文字サイズ |
 | `DataManagement` | 1 年経過した `completed` / `deleted` タスクと、1 年経過または孤児化した完了履歴を**ローカルから**物理削除 |
 | `Feedback` | Google フォームへの外部リンク（`FEEDBACK_FORM_URL` 未設定時はボタン無効） |
+
+### QR による端末追加
+
+12 桁の手入力が初回体験の摩擦点だったため、1 台目が QR を表示し 2 台目が読み取る経路を追加しています。手入力の経路は残してあります（読み取れない環境のフォールバック）。
+
+- **QR に載せるのは同期コードの生文字列 12 文字だけです。** アプリの URL は載せません。同期コードは bearer credential なので、URL に載せると履歴・Referer・アクセスログに残る経路ができます（[security.md](./security.md#qr-による端末追加)）。
+- **QR の読み取りは `switchSyncCode()` の確認経路を迂回しません。** `SyncQrScanner` は同期を実行せず、読み取った値を返すだけです。実行は手入力と同じ確認ダイアログ →`switchSyncCode()` を通ります。全件がサーバーに書けたことを検証してからローカルを差し替える保全ロジック（[sync.md](./sync.md)）を回避してはいけません。
+- 確認ダイアログには読み取ったコードを `ABCD-2345-EFGH` 形式で表示します（誤読の目視検知）。
+- 生成は `qrcode-generator`、読み取りは `jsqr`。**どちらも動的 import** し、設定画面を開くまで読み込みません。CDN は使いません（オフラインで動く必要があるため）。両チャンクとも Workbox の precache manifest に入ります（2026-08-16 に `dist/sw.js` で実測確認）。
+- QR は英数字モード・誤り訂正 Q で生成するため version 1（21×21）に収まります。既定の Byte モードだと 12 バイトが version 1-Q の上限 11 バイトを超えて version 2 に上がるため、`addData` にモードを明示しています。
+- **QR は白地・黒モジュール固定です。** ダークモードでも反転させません（反転した QR を読めないリーダーがあるため）。クワイエットゾーン 4 モジュールを `viewBox` に含めて白で塗ります。
+- カメラ映像は端末内の `<canvas>` で処理するだけで、どこにも送信しません。`facingMode` は `ideal: 'environment'`（`exact` にすると背面カメラの無い PC で `OverconstrainedError` になる）。`<video>` には `playsInline` / `muted` / `autoPlay` が必須です（iOS Safari のインライン再生）。
+- 同期コードとして妥当でない QR を読んだ場合は、スキャナを閉じずに案内を出して読み取りを続けます（他アプリの QR を写しただけの可能性が高いため）。
 
 ### 未実装（既知）
 

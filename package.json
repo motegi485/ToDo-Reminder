@@ -16,7 +16,9 @@
     "@dnd-kit/utilities": "^3.2.2",
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.460.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

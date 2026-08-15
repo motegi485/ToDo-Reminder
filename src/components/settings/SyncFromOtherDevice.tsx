@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { Smartphone } from 'lucide-react';
-import { normalizeSyncCode, isValidSyncCode } from '@/lib/syncCode';
+import { Camera, Smartphone } from 'lucide-react';
+import { normalizeSyncCode, isValidSyncCode, formatSyncCode } from '@/lib/syncCode';
 import { showToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { switchSyncCode } from '@/lib/sync';
+import { SyncQrScanner } from './SyncQrScanner';
 
 export function SyncFromOtherDevice() {
   const [input, setInput] = useState('');
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const normalized = normalizeSyncCode(input);
   const valid = isValidSyncCode(normalized);
 
@@ -17,6 +19,15 @@ export function SyncFromOtherDevice() {
       showToast('同期コードの形式が正しくありません', 'warn');
       return;
     }
+    setConfirm(true);
+  };
+
+  // QR から来た場合も入力欄を埋めるだけで、実行は下の doSync（= switchSyncCode）を通る。
+  // switchSyncCode() は全件がサーバーに書けたことを検証してからローカルを差し替える設計なので、
+  // この経路を迂回してはいけない。
+  const handleDetected = (code: string) => {
+    setScanning(false);
+    setInput(code);
     setConfirm(true);
   };
 
@@ -63,10 +74,23 @@ export function SyncFromOtherDevice() {
           {loading ? '同期中...' : '同期する'}
         </button>
       </div>
+      <button
+        type="button"
+        onClick={() => setScanning(true)}
+        disabled={loading}
+        className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 px-3 py-2 text-sm disabled:opacity-40"
+      >
+        <Camera size={14} /> QR を読み取る
+      </button>
+      <SyncQrScanner
+        open={scanning}
+        onClose={() => setScanning(false)}
+        onDetected={handleDetected}
+      />
       <ConfirmDialog
         open={confirm}
         title="他端末と同期しますか？"
-        description="現在のタスクを入力したコードへ統合してから、そのコードに切り替えます。以後はそのコードのタスク一覧が表示されます。"
+        description={`切り替え先のコード: ${formatSyncCode(normalized)}\n現在のタスクをこのコードへ統合してから、そのコードに切り替えます。以後はそのコードのタスク一覧が表示されます。`}
         confirmLabel="同期する"
         onConfirm={() => { void doSync(); }}
         onCancel={() => setConfirm(false)}
