@@ -15,7 +15,9 @@
 | 同期の再入ガード | 未対応 | 複数トリガが重なると重複 push があり得る。LWW と再送でデータ欠落を避ける設計。 [sync.md](./sync.md#未実装既知) |
 | 退会・サーバー全削除の UI | 未対応 | 端末内整理と Push 停止はあるが、サーバー全削除の利用者向け導線はない。 [operations.md](./operations.md#バックアップとデータの取り扱い) |
 | DST | 制約あり | `tz_offset` は端末が次に処理した時点で更新される。実機を含む境界確認が必要。 [recurrence.md](./recurrence.md#タイムゾーンの扱い) |
-| 依存ライセンス | 要判断 | Web Push の推移依存に、利用許諾の確認が必要なものがある。法的な判断は人間が行う。 [security.md](./security.md#依存ライセンス) |
+| 依存ライセンス | 要判断 | Web Push の推移依存に、利用許諾の確認が必要なものがある。また `qrcode-generator` は LICENSE ファイルを同梱しておらず、`package.json` の `"license": "MIT"` と配布ファイル冒頭の著作権表示だけが根拠になっている。法的な判断は人間が行う。 [security.md](./security.md#依存ライセンス)、[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) |
+| QR 読み取りの依存が未メンテ | 許容 | `jsqr` は最終公開が 2021-04-24 で更新が止まっている。ネットワークにも DOM にも触れない純粋関数（`Uint8ClampedArray` → デコード結果）なので攻撃面は小さいが、不具合の上流修正は期待できない。差し替え候補は `barcode-detector`（zxing-wasm）だが、wasm を既定で CDN 取得するためオフライン PWA には手当てが要る。 [security.md](./security.md#qr-による端末追加) |
+| QR は OS 標準カメラで読めない | 設計 | QR に同期コードの生文字列だけを載せ URL を載せない判断の代償。読み取りはアプリ内カメラでのみ成立する。 [security.md](./security.md#qr-による端末追加) |
 
 ## 検証基盤の制約
 
@@ -23,6 +25,7 @@
 |---|---|---|
 | 自動テスト・lint・CI | 未導入 | 変更ごとに `npm run typecheck`、必要なら build/preview と手動確認を行う。 [development-workflow.md](./development-workflow.md) |
 | 実機 Push / PWA | この文書作成時点では未確認 | iOS、Android、デスクトップでの購読・通知・クリック・SW 更新を、実機で確認して結果を残す。 |
+| 実機での QR 読み取り | 2026-08-16 時点で未確認 | ビルド・型・オフライン precache・バンドルサイズはローカルで実測済み。**カメラの起動と読み取りは実機未確認。** 特に iOS のホーム画面 PWA での `getUserMedia`（文献上は iOS 14.3 以降で可能）を実機で確認し、結果を残す。あわせて 2 台での通し（表示 → 読み取り → 確認ダイアログ → 同期完了）と、スキャナを閉じた後にカメラのインジケータが消えることを確認する。 |
 | 本番 Cloudflare 設定 | この文書作成時点では未確認 | allowlist、Cron、D1 schema、Pages 設定、Secrets の値を公開文書から推測しない。人間が管理画面で確認する。 |
 | 本番データ | 意図的に未参照 | 開発・検証では隔離したデータのみを使う。バックアップやログを公開文書へ貼らない。 |
 
