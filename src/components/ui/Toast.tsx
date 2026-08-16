@@ -1,17 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type ToastKind = 'info' | 'success' | 'warn' | 'error';
+
+/** トーストの右端に置く操作。押すとトーストは即座に閉じる。 */
+export interface ToastAction {
+  label: string;
+  onAction: () => void;
+}
+
+export interface ToastOptions {
+  action?: ToastAction;
+  /** 表示時間(ms)。既定 3000。取り消しなど操作を伴うものは長めにする。 */
+  durationMs?: number;
+}
+
 interface ToastItem {
   id: number;
   text: string;
   kind: ToastKind;
+  action?: ToastAction;
+  durationMs: number;
 }
 
 const EVENT = 'todo:toast';
+const DEFAULT_DURATION_MS = 3000;
 let nextId = 1;
 
-export function showToast(text: string, kind: ToastKind = 'info'): void {
-  window.dispatchEvent(new CustomEvent<ToastItem>(EVENT, { detail: { id: nextId++, text, kind } }));
+export function showToast(text: string, kind: ToastKind = 'info', options?: ToastOptions): void {
+  window.dispatchEvent(
+    new CustomEvent<ToastItem>(EVENT, {
+      detail: {
+        id: nextId++,
+        text,
+        kind,
+        action: options?.action,
+        durationMs: options?.durationMs ?? DEFAULT_DURATION_MS,
+      },
+    }),
+  );
 }
 
 const COLORS: Record<ToastKind, string> = {
@@ -23,25 +49,37 @@ const COLORS: Record<ToastKind, string> = {
 
 export function ToastContainer() {
   const [items, setItems] = useState<ToastItem[]>([]);
+  // アンマウント後に setItems が呼ばれないよう、除去タイマーは全て回収する。
+  // アクションを押したときに個別へ clear できるよう id で引けるようにしている。
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
-    // アンマウント後に setItems が呼ばれないよう、除去タイマーは全て回収する。
-    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const current = timers.current;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<ToastItem>).detail;
       setItems((prev) => [...prev, detail]);
       const timer = setTimeout(() => {
-        timers.delete(timer);
+        current.delete(detail.id);
         setItems((prev) => prev.filter((i) => i.id !== detail.id));
-      }, 3000);
-      timers.add(timer);
+      }, detail.durationMs);
+      current.set(detail.id, timer);
     };
     window.addEventListener(EVENT, handler);
     return () => {
       window.removeEventListener(EVENT, handler);
-      for (const timer of timers) clearTimeout(timer);
+      for (const timer of current.values()) clearTimeout(timer);
+      current.clear();
     };
   }, []);
+
+  const dismiss = (id: number) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    setItems((prev) => prev.filter((i) => i.id !== id));
+  };
 
   return (
     <div
@@ -52,11 +90,25 @@ export function ToastContainer() {
         <div
           key={t.id}
           className={[
-            'max-w-sm px-4 py-2 rounded-full text-sm shadow-lg pointer-events-auto',
+            'flex max-w-sm items-center rounded-full text-sm shadow-lg pointer-events-auto',
+            // アクション付きは右側にボタンが入るぶん右の余白を詰める
+            t.action ? 'py-1 pl-4 pr-1' : 'px-4 py-2',
             COLORS[t.kind],
           ].join(' ')}
         >
-          {t.text}
+          <span className="min-w-0">{t.text}</span>
+          {t.action && (
+            <button
+              type="button"
+              onClick={() => {
+                dismiss(t.id);
+                t.action?.onAction();
+              }}
+              className="ml-3 shrink-0 rounded-full px-3 py-1 font-semibold underline underline-offset-2 hover:bg-white/15"
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
