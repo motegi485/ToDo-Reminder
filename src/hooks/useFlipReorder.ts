@@ -40,6 +40,9 @@ export function useFlipReorder(
         const before = prevTops.current.get(id); // first（= 前回）位置
         const after = lastTops.get(id);
         if (before == null || after == null) continue; // 新規マウントは skip
+        // data-flip-skip の要素は自前の登場アニメを持つ（スワイプ完了カードの「右から入る」等）。
+        // FLIP の縦スライドを重ねると斜めに飛んで演出が読めなくなるので、この回は譲る。
+        if (c.dataset.flipSkip === 'true') continue;
         const dy = before - after;
         if (Math.abs(dy) < 1) continue;
 
