@@ -167,3 +167,21 @@
     animation: none !important;
   }
 }
+
+/* 右スワイプで抜けていったタスクが、完了群に画面右側から入ってくる演出。
+   抜けた方向と入ってくる方向を揃えて「向こうへ回り込んだ」ように見せる。
+   出ていく側（transform の直接書き込み）は useSwipeAction が担当する。 */
+@keyframes task-fly-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+/* duration は TaskCard.tsx の FLY_IN_MS と同値に保つこと。 */
+.task-fly-in {
+  animation: task-fly-in 300ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-fly-in {
+    animation: none !important;
+  }
+}
