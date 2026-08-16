@@ -165,6 +165,46 @@ export async function deleteTask(id: string): Promise<void> {
 }
 
 /**
+ * 単発タスクのリマインダーを先送りする（スワイプの「延期」）。
+ *
+ * **動かすのは `reminder_time` だけで、`due_date` は触らない。** 期限は通知に関与しない
+ * 表示専用メタデータであり、ユーザーが決めた締切を延期操作が黙って書き換えないため。
+ *
+ * **繰り返しタスクには使わない。** 繰り返しの `reminder_time` は「周期境界 − offset」から
+ * 導出される値なので、手動の値を入れても `reviveRecurringTasks()` とサーバー Cron の前進計算に
+ * 上書きされて延期が消える（docs/recurrence.md）。呼び出し側で導線を隠しているが、
+ * 防御的にここでも no-op にする。
+ */
+export async function snoozeTask(id: string, at: string): Promise<Task | null> {
+  const existing = await db.tasks.get(id);
+  if (!existing) return null;
+  if (existing.recurrence_rule) return existing;
+  const next = roundToMinute(at);
+  if (next === existing.reminder_time) return existing;
+  const task: Task = { ...existing, reminder_time: next, updated_at: Date.now() };
+  await db.tasks.put(task);
+  scheduleSync();
+  return task;
+}
+
+/**
+ * ソフト削除を取り消して status を元へ戻す。メモ（kind='memo'）も同じ行なのでこの関数で戻す。
+ *
+ * sort_order は削除時に触らないため、'active' へ戻せばプロジェクト内の元の位置に戻る。
+ * 'completed' へ戻す場合は updated_at が進むぶん完了群の最上部へ移る（完了群は updated_at 降順）。
+ *
+ * 既に status が 'deleted' でない行には触らない。取り消しトーストが出ている数秒の間に
+ * 他端末の pull が届いて復活・再編集されている可能性があり、そこへ古い status を
+ * 上書きすると LWW で相手の変更を消してしまう。
+ */
+export async function restoreTask(id: string, previousStatus: 'active' | 'completed'): Promise<void> {
+  const existing = await db.tasks.get(id);
+  if (!existing || existing.status !== 'deleted') return;
+  await db.tasks.put({ ...existing, status: previousStatus, updated_at: Date.now() });
+  scheduleSync();
+}
+
+/**
  * タスクカードから期限（表示専用メタデータ）を設定・削除する。
  * 期限は通知に関与しないため reminder_* / recurrence_rule / tz_offset は一切触らない。
  * 繰り返しタスクとは排他（期限を付けない）: カード側で導線を隠しているが、防御的に no-op にする。
