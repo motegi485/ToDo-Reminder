@@ -26,7 +26,7 @@
 
 ## デプロイ・本番運用
 
-- CI/CD なし。**本番反映はすべて手動で、実行の判断はユーザーが行う**（勝手にデプロイしない）
+- CI/CD なし。**本番デプロイと D1 の `--remote` 適用は、対象・変更内容・リスクを毎回説明し、実行直前にユーザーの承認を得てから実行する**（過去の承認は再利用しない）
   - Workers: `npx wrangler deploy`
   - フロント: `npx wrangler pages deploy dist --project-name=todo-reminder --branch=main`（`--branch` を省略すると現在の git ブランチ名で判定され、sandbox からだと Production ではなくプレビューに出る）
 - `wrangler.toml` は git 管理外（ローカルには実在）。バインディングや Cron を変更したら `wrangler.toml.example` も同期して更新する
