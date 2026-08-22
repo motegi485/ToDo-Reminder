@@ -21,6 +21,12 @@
 完了しているなら」通知を送る）。実際の `completed → active` の書き換えはクライアントの `reviveRecurringTasks()`
 が行います。詳細は [recurrence.md](./recurrence.md)。
 
+**周期をまたぐときに戻す値も同じ扱い**: 定量タスクの `current_value` を 0 に戻す処理と、サブタスク
+（`subtasks`）の `done` を全て `false` に戻す処理も、どちらも `reviveRecurringTasks()` の中だけで行います。
+**サーバーにこれらを書かせない。** 理由は status とまったく同じで、書けば `updated_at` の扱いに関して
+上と同じジレンマに陥ります。どちらも `completed → active` の分岐の中にあり、`active` のまま持ち越した
+タスクには適用しません（途中まで進めた手順や現在値を、周期が変わっただけで消さない）。
+
 ---
 
 ## I-2. push カーソルと pull カーソルは別の時計

@@ -25,8 +25,8 @@ DB 名 `TodoDB`、最新バージョン **3**（`src/lib/db.ts`）。
 | `meta` | `key` | — | 補助メタ（拡張用・現在ほぼ未使用） |
 | `completions` | `id` | `task_id, completed_at` | 繰り返しタスクの完了履歴 |
 
-`kind` はインデックスしていません。既存行は `kind` が `undefined` のため `where('kind')` に載らず取りこぼすので、
-絞り込みはメモリ上のフィルタ（`isMemo()`）で行います。そのため列の追加だけで済み、Dexie のバージョンは 3 のままです。
+`kind` と `subtasks` はインデックスしていません。既存行はこれらが `undefined` のため `where(...)` に載らず取りこぼすので、
+絞り込みはメモリ上のフィルタ（`isMemo()` / `normalizeSubtasks()`）で行います。そのため列の追加だけで済み、Dexie のバージョンは 3 のままです。
 
 ### `completions` が別ストアな理由
 
@@ -68,6 +68,46 @@ SQLite は列 CHECK を後から緩められません。`type` に `'memo'` を�
 `src/hooks/useProjects.ts` の `remaining`（プロジェクトチップと一覧ヘッダーが使う）、
 `src/components/project/ProjectGroup.tsx` の見出しの分数、`src/lib/reports.ts` の `getWeeklyCompletionRate`。
 
+### サブタスクは親行の 1 列に入る
+
+タスク内のチェックリスト（「引っ越しの準備」の中の「住所変更」「段ボール手配」など）は、
+**子 1 件を 1 行にせず、親タスク行の `subtasks` 列に JSON 配列として**持ちます。形式は
+`recurrence_rule` と同じで、**ローカル（Dexie）はオブジェクト配列、D1 は JSON 文字列**です。
+
+```ts
+type Subtask = { id: string; title: string; done: boolean };
+```
+
+**なぜ独立行にしないのか**: メモ（`kind='memo'`）と違い、サブタスクは独立に検索・通知・
+並べ替えの対象になりません。行にすると `tasks` を読むすべての箇所に「子を除外する」フィルタが
+要ります。現在の対象は `src/lib/sort.ts` の `sortTasksInGroup`、`src/hooks/useProjects.ts` の
+`remaining`、`src/components/project/ProjectGroup.tsx` の見出しの分数、`src/lib/reports.ts` の
+2 関数、`src/lib/offlineNotify.ts`、`src/lib/taskRepo.ts` の `topSortOrder` / `renumberActive` で、
+1 箇所でも抜けると一覧に子が単独行として並びます（0007 でメモを足したときに 3 箇所で踏んだ罠を、
+より多くの箇所で繰り返すことになります）。列にすれば**これらは一切変更不要**です。
+
+**代償**: LWW の粒度が親行単位になります。2 端末が同時に別々の子をチェックすると、後勝ちで
+片方のチェックが消えます。「2 台を日常的に使うが、同じタスクを同時には触らない」という
+利用実態を確認したうえで受け入れています。多端末の同時編集が常態化したら、この判断は見直しが要ります。
+
+**サブタスクを持てる行の条件**（`src/lib/taskRepo.ts` の `buildTask` が保証する）
+
+| 条件 | 理由 |
+|---|---|
+| `kind` が `null`（タスク） | メモは完了の概念を持たないため進捗の意味が定まらない |
+| `type` が `'simple'` | 定量タスクは既に「目標値に対する進捗」を持ち、1 枚のカードに進捗表現が 2 つ並ぶと読めない |
+| 空配列は保存しない（`null` へ畳む） | 「サブタスクなし」と「0 件」を区別すると、子を全部消したカードに `0/0` が残る |
+
+**読むときは必ず `src/lib/subtasks.ts` の `normalizeSubtasks()` を通すこと。** pull はサーバー応答を
+正規化せず `db.tasks.put(serverTask)` でそのまま Dexie へ入れ（`src/lib/sync.ts`）、サーバーは
+中身を解釈しません。したがって別バージョンのクライアントが書いた形や壊れた値がそのまま UI まで
+届きえます。解釈できない値は「サブタスクなし」として扱います（カード 1 枚の描画が壊れると、
+そのプロジェクトの一覧ごと落ちるため）。
+
+**親との連動**は `docs/frontend.md` を参照してください。周期境界での子のリセットは
+[invariants.md](./invariants.md#i-1-繰り返しタスクの-status-復活はクライアント専任) のとおり
+**クライアント専任**です。
+
 ### v3 マイグレーション（`src/lib/db.ts`）
 
 繰り返しを「完了したら次回タスクを新規生成」から「同じタスクを復活させる」方式へ変えたときの移行です。
@@ -104,13 +144,14 @@ CREATE TABLE tasks (
   kind            TEXT,                      -- 'memo' / NULL(=タスク)。行の種別
   memo_type       TEXT,                      -- 'phone'/'email'/'password'/'other'
   memo_value      TEXT,                      -- メモの値（コピー対象）
+  subtasks        TEXT,                      -- JSON 配列。null = サブタスクなし
   FOREIGN KEY (sync_code) REFERENCES users(sync_code)
 );
 ```
 
-`kind` / `memo_type` / `memo_value` には **CHECK 制約を付けていません**。`color` と同じ理由で、
+`kind` / `memo_type` / `memo_value` / `subtasks` には **CHECK 制約を付けていません**。`color` と同じ理由で、
 値の集合が将来増えるものにサーバー側制約を持たせると、クライアントを更新した瞬間に同期が
-`CHECK constraint failed` で全滅します。サーバーはこの 3 列を解釈せず、長さと型だけ見て素通しします。
+`CHECK constraint failed` で全滅します。サーバーはこの 4 列を解釈せず、長さと型だけ見て素通しします。
 
 **インデックス**（0006 適用後の最終形）
 
@@ -189,6 +230,7 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 | `0005_add_color.sql` | `tasks.color` 追加。**CHECK 制約は付けない**（パレットを増やしても同期が壊れないように） |
 | `0006_push_subscriptions.sql` | 購読表の新設 + `users.push_subscription` からの自動移行 + `reminder_time` インデックスの張り直し |
 | `0007_add_memo_columns.sql` | `tasks.kind` / `memo_type` / `memo_value` 追加。**CHECK 制約は付けない**。既存行は NULL（= タスク） |
+| `0008_add_subtasks.sql` | `tasks.subtasks` 追加。**CHECK 制約は付けない**。既存行は NULL（= サブタスクなし） |
 
 ### 適用のルール
 
@@ -247,7 +289,22 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 ```ts
 // 繰り返しルール（JSON 文字列として保存される）
 type RecurrenceRule = { type: 'daily' | 'weekly' | 'monthly' };
+
+// サブタスク（同じく JSON 文字列として保存される）
+type Subtask = { id: string; title: string; done: boolean };
 ```
+
+サブタスクの上限はクライアント側だけが持ちます（サーバーは件数も文字数も見ず、JSON 長だけを見ます）。
+
+| 定数（`src/lib/constants.ts`） | 値 |
+|---|---|
+| `SUBTASK_MAX_COUNT` | 20 |
+| `SUBTASK_TITLE_MAX_LENGTH` | 100 |
+
+サーバーの `SUBTASKS_MAX_BYTES` を 6144 にしてあるのは、この 2 つを満たす入力がサーバーで
+`invalid` として黙って落ちる状態を作らないためです。20 件 × 100 文字の JSON は日本語で 3,401
+コード単位ですが、タイトルが全て `"` の最悪ケースでは JSON エスケープで 5,401 まで膨らみます
+（ローカル実測・2026-08-22）。4096 だと後者が落ちます。
 
 サーバーの `workers/lib/constants.ts` の `RECURRENCE_TYPES` がこの集合と一致している必要があります
 （[invariants.md](./invariants.md#i-6-サーバーは-color-と-project_name-を解釈しない)）。
@@ -267,6 +324,7 @@ type RecurrenceRule = { type: 'daily' | 'weekly' | 'monthly' };
 | `MEMO_TYPE_MAX_LENGTH` | 32 | — |
 | `KIND_MAX_LENGTH` | 16 | — |
 | `RECURRENCE_RULE_MAX_BYTES` | 512 | JavaScript の UTF-16 コード単位の長さで判定する上限（定数名は既存のまま） |
+| `SUBTASKS_MAX_BYTES` | 6144 | `CONSTANTS.SUBTASKS_MAX_BYTES`。JSON 化後の UTF-16 コード単位の長さ |
 | `MAX_TASKS_PER_PUSH` | 40 | `PUSH_CHUNK_SIZE` / `CHUNK_SIZE` と同値 |
 | `TZ_OFFSET_MIN` / `MAX` | -900 / 900 | 実在するのは -720..+840 |
 | `REMINDER_OFFSET_MIN` / `MAX` | 0 / 44640 | 44640 分 = 31 日 |

@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CalendarPlus,
   Check,
+  ChevronDown,
   Clock,
   MoreVertical,
   Pencil,
@@ -14,6 +15,8 @@ import {
 } from 'lucide-react';
 import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
+import { SubtaskList } from './SubtaskList';
+import { normalizeSubtasks } from '@/lib/subtasks';
 import { DueDateSheet } from './DueDateSheet';
 import { SnoozeSheet } from './SnoozeSheet';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -74,6 +77,11 @@ export function TaskCard({
   const [dueSheetOpen, setDueSheetOpen] = useState(false);
   const [snoozeSheetOpen, setSnoozeSheetOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // 未完了のサブタスクを残したまま親を完了させようとしたときの確認。
+  const [confirmComplete, setConfirmComplete] = useState(false);
+  // サブタスクの展開状態。**永続化しない**（毎回折りたたみで開く）。
+  // 一覧の情報密度を上げないことがこの機能の目的なので、既定は常に畳んだ状態にする。
+  const [expanded, setExpanded] = useState(false);
   const [showQuantModal, setShowQuantModal] = useState(false);
   const [completionDraft, setCompletionDraft] = useState('');
   const [pending, setPending] = useState(false);
@@ -114,6 +122,12 @@ export function TaskCard({
 
   const completed = task.status === 'completed';
   const showChecked = completed || pending; // 見た目用のチェック状態（楽観表示を含む）
+  // サブタスクは必ず正規化してから読む。pull はサーバー応答をそのまま Dexie へ入れるため、
+  // 別バージョンのクライアントが書いた形や壊れた値がここまで届きうる（src/lib/subtasks.ts）。
+  const subtasks = normalizeSubtasks(task.subtasks);
+  const doneCount = subtasks?.filter((s) => s.done).length ?? 0;
+  // 未完了の子を残したままの完了は「確認してから」。完了済みタスクでは問わない。
+  const hasUnfinishedSubtasks = !completed && subtasks !== null && doneCount < subtasks.length;
   // 完了タスクは overdue 扱いしない（テキストの「期限切れ」も赤配色も未完了限定。§4.2）。
   const due = task.due_date ? formatDuePill(task.due_date, new Date(), !completed) : null;
   const dueToneClass = due
@@ -208,6 +222,11 @@ export function TaskCard({
       return;
     }
     if (openQuantModal()) return;
+    // 未完了のサブタスクが残っているなら、完了させる前に一度確認する。
+    if (hasUnfinishedSubtasks) {
+      setConfirmComplete(true);
+      return;
+    }
     // active なシンプルタスク → その場でチェック確定し、少し遅れて DB をコミットしてから滑らせる
     startCompletion(COMMIT_DELAY_MS, true);
   };
@@ -269,6 +288,13 @@ export function TaskCard({
       return;
     }
     if (openQuantModal()) return;
+    // 未完了のサブタスクが残っている場合、カードは飛ばさずその場に戻してから確認する
+    // （commitRightBehavior が 'spring' なので useSwipeAction 側が既に戻している）。
+    // 飛んでいくカードの上に確認ダイアログを出すと、キャンセルしたときの戻し先が無い。
+    if (hasUnfinishedSubtasks) {
+      setConfirmComplete(true);
+      return;
+    }
     markSwipedAway(task.id); // 完了群へ再マウントされる側で「右から入る」演出に使う
     startCompletion(prefersReducedMotion() ? 0 : FLY_OUT_MS, false, () => swipeCloseRef.current());
   };
@@ -282,8 +308,11 @@ export function TaskCard({
 
   const swipe = useSwipeAction({
     onCommitRight: handleSwipeRight,
-    // 未完了の定量タスクだけはカードがその場に残る（進捗モーダルが開くだけ）。
-    commitRightBehavior: !completed && task.type === 'quantitative' ? 'spring' : 'fly',
+    // カードがその場に残る操作は 'spring'（飛ばさずに戻す）。
+    //  - 未完了の定量タスク: 進捗モーダルが開くだけで、完了するとは限らない
+    //  - 未完了の子が残るタスク: 確認ダイアログが開く。キャンセルされうる
+    commitRightBehavior:
+      !completed && (task.type === 'quantitative' || hasUnfinishedSubtasks) ? 'spring' : 'fly',
     leftPanelWidth,
     disabled: isDragging,
   });
@@ -498,6 +527,18 @@ export function TaskCard({
               {task.title}
             </div>
 
+            {/* サブタスクの進捗バー。件数（2/4）はカード右上に置くため、ここは細いバーだけ。
+                定量タスクのバー（h-1.5・数値がバーの上）と高さと数値の位置で見分けられるようにする
+                （サブタスクは simple 限定なので同じカードに 2 本並ぶことはないが、一覧では混在する）。 */}
+            {subtasks && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div
+                  className={`h-full ${accent.bg} transition-[width] duration-300 ease-out motion-reduce:transition-none`}
+                  style={{ width: `${(doneCount / subtasks.length) * 100}%` }}
+                />
+              </div>
+            )}
+
             {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は右端の期限ピルへ一本化した。 */}
             {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
 
@@ -525,8 +566,56 @@ export function TaskCard({
             {showProjectLabel && task.project_name && (
               <div className="mt-0.5 text-[0.6875rem] text-slate-400">{task.project_name}</div>
             )}
+
+            {/* サブタスクのチェックリスト。
+                grid-template-rows の 0fr→1fr で、中身の高さを測らずに開閉できる。
+                畳んだ状態でも DOM に残すことで、閉じる側もアニメーションする。
+                並び順の変化ではないため useFlipReorder（listRef 直下の data-task-id を見る）
+                は走らず、下のカードはこの高さ変化に自然に追従する。 */}
+            {subtasks && (
+              <div
+                className={[
+                  'grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none',
+                  expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+                ].join(' ')}
+              >
+                <div className="overflow-hidden">
+                  <SubtaskList taskId={task.id} subtasks={subtasks} accent={accent} />
+                </div>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* サブタスクの進捗と開閉。**展開の導線はこのボタンだけにする。**
+            カード面のタップはスワイプ（横）と長押しドラッグ（@dnd-kit）の起点を兼ねており、
+            そこへ展開を足すと、スワイプを途中でやめただけで誤って開くようになる。 */}
+        {subtasks && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`サブタスク ${subtasks.length} 件中 ${doneCount} 件完了。${expanded ? '折りたたむ' : '展開する'}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className={[
+              'mt-0.5 shrink-0 self-start inline-flex items-center gap-0.5 rounded-full py-0.5 pl-1.5 pr-0.5',
+              'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
+              'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
+              completed ? 'opacity-60' : '',
+            ].join(' ')}
+          >
+            {doneCount}/{subtasks.length}
+            <ChevronDown
+              aria-hidden
+              className={[
+                'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
+                expanded ? 'rotate-180' : '',
+              ].join(' ')}
+            />
+          </button>
+        )}
 
         {/* 期限ピル（本文の右・三点メニューの左）。期限は表示専用メタデータ。
             カレンダーアイコンで「期限」だと一目で分かるようにする（リマインダーの Bell と語彙を分ける）。 */}
@@ -711,6 +800,19 @@ export function TaskCard({
         destructive
         onConfirm={handleDelete}
         onCancel={() => setConfirmDelete(false)}
+      />
+      {/* 未完了の子を残したままの完了。子は書き換えず、親の status だけを進める
+          （子を巻き込んで完了にすると、未完了へ戻したときに元の状態を復元できない）。 */}
+      <ConfirmDialog
+        open={confirmComplete}
+        title={`未完了のサブタスクが ${subtasks ? subtasks.length - doneCount : 0} 件あります`}
+        description="このタスクを完了にしますか？ サブタスクのチェックはそのまま残ります。"
+        confirmLabel="完了にする"
+        onConfirm={() => {
+          setConfirmComplete(false);
+          startCompletion(COMMIT_DELAY_MS, true);
+        }}
+        onCancel={() => setConfirmComplete(false)}
       />
       <DueDateSheet open={dueSheetOpen} onClose={() => setDueSheetOpen(false)} task={task} />
       <SnoozeSheet open={snoozeSheetOpen} onClose={() => setSnoozeSheetOpen(false)} task={task} />
