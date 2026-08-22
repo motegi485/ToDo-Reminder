@@ -57,6 +57,8 @@ function buildMemo(input: MemoInput, base?: Task): Task {
     kind: 'memo',
     memo_type: input.memo_type,
     memo_value: input.memo_value,
+    // メモは完了の概念を持たないため、進捗としてのサブタスクも持たない。
+    subtasks: null,
   };
 }
 

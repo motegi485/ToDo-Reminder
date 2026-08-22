@@ -16,6 +16,22 @@ export interface RecurrenceRule {
   type: RecurrenceType;
 }
 
+/**
+ * タスク内のチェックリスト 1 件。
+ *
+ * 独立した行ではなく、親タスク行の `subtasks` 列に JSON 配列として同居する
+ * （`recurrence_rule` と同じ「ローカルはオブジェクト / D1 は JSON 文字列」方式）。
+ * 並び順は配列の順序そのもの。`sort_order` のような列は持たない。
+ *
+ * 色は持たない（親の色を継承する）。リマインダー・期限・繰り返しも持たない
+ * （子は通知の単位ではない）。
+ */
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 /** 繰り返しタスクを完了した記録（レポート集計用、ローカル保存）。 */
 export interface CompletionLog {
   id: string;
@@ -53,6 +69,14 @@ export interface Task {
   memo_type: MemoType | null;
   // メモの値（コピー対象）。kind === 'memo' 以外では null。
   memo_value: string | null;
+  // タスク内のチェックリスト。null = サブタスクなし（既存行はすべてこちら）。
+  // 空配列は保存しない（normalizeSubtasks が null へ畳む）ので、「0/0」の状態は存在しない。
+  // 持てるのは kind === null かつ type === 'simple' の行だけ。定量タスクは既に
+  // 「目標値に対する進捗」を持っており、二重の進捗表示になるため対象外。
+  // **読むときは必ず src/lib/subtasks.ts の normalizeSubtasks() を通すこと。**
+  // pull は正規化せず db.tasks.put(serverTask) でそのまま入れる（sync.ts）ため、
+  // 別バージョンのクライアントが書いた想定外の形がそのまま UI まで届きうる。
+  subtasks: Subtask[] | null;
 }
 
 /**

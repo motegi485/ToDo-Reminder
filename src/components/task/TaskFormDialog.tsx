@@ -5,6 +5,8 @@ import { ReminderField } from './ReminderField';
 import { RecurrenceField } from './RecurrenceField';
 import { ColorPicker } from './ColorPicker';
 import { ProjectInput } from '@/components/project/ProjectInput';
+import { SubtaskEditor } from './SubtaskEditor';
+import { normalizeSubtasks } from '@/lib/subtasks';
 import { validateForm, type FormValues } from '@/lib/validation';
 import { createTask, updateTask } from '@/lib/taskRepo';
 import { holdAppUpdate } from '@/lib/appUpdate';
@@ -42,6 +44,7 @@ function emptyValues(): FormValues {
     project_name: null,
     // 新規タスクは既定色を選択状態にする（自動配色にしたい場合はユーザーが「自動」を選ぶ）。
     color: DEFAULT_TASK_COLOR,
+    subtasks: null,
   };
 }
 
@@ -61,6 +64,8 @@ function fromTask(t: Task): FormValues {
     project_name: t.project_name,
     // 既存タスクは保存値をそのまま。未設定（旧データ）は自動配色。
     color: t.color ?? null,
+    // 壊れた値・別バージョンのクライアントが書いた形をフォームへ持ち込まない。
+    subtasks: normalizeSubtasks(t.subtasks),
   };
 }
 
@@ -177,6 +182,8 @@ export function TaskFormDialog({
         recurrence_rule: values.recurrence_rule,
         project_name: values.project_name,
         color: values.color,
+        // 空タイトルの行は保存しない（「追加」を押しただけで確定させない）。
+        subtasks: values.subtasks?.filter((s) => s.title.trim().length > 0) ?? null,
       };
       if (editing) {
         await updateTask(editing.id, payload);
@@ -352,6 +359,20 @@ export function TaskFormDialog({
           />
           {errors.project_name && <p className="text-[0.8125rem] text-red-600">{errors.project_name}</p>}
         </div>
+
+        {/* サブタスクは simple タスクのみ。定量タスクは既に「目標値に対する進捗」を
+            持っており、1 枚のカードに進捗表現が 2 つ並ぶと読めなくなる。 */}
+        {values.type === 'simple' && (
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+            <div className="pt-2">
+              <SubtaskEditor
+                value={values.subtasks}
+                onChange={(v) => setField('subtasks', v)}
+                error={errors.subtasks}
+              />
+            </div>
+          </div>
+        )}
       </div>
     </FormDialog>
   );

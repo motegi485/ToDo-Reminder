@@ -6,7 +6,8 @@ import { taskOrderKey } from './sort';
 import { normalizeColor } from './taskColors';
 import { projectNameError } from './validation';
 import { migrateProjectState } from './projectExpansion';
-import type { CompletionLog, RecurrenceRule, Task, TaskType } from '@/types';
+import { isAllSubtasksDone, normalizeSubtasks } from './subtasks';
+import type { CompletionLog, RecurrenceRule, Subtask, Task, TaskType } from '@/types';
 
 // 手動並べ替えの端（先頭/末尾）へ置くときのマージン、および衝突時リナンバーの等間隔幅。
 const REORDER_STEP = 1000;
@@ -34,6 +35,8 @@ export interface TaskInput {
   recurrence_rule: RecurrenceRule | null;
   project_name: string | null;
   color: string | null;
+  // タスク内のチェックリスト。simple タスクのみ有効（定量では無視して null にする）。
+  subtasks: Subtask[] | null;
 }
 
 function syncCode(): string {
@@ -106,6 +109,10 @@ function buildTask(input: TaskInput, base?: Task): Task {
     kind: null,
     memo_type: null,
     memo_value: null,
+    // サブタスクは simple タスクだけが持つ。定量タスクは既に「目標値に対する進捗」を
+    // 持っており、1 枚のカードに進捗表現が 2 つ並ぶと読めなくなる。
+    // 種類の変更は編集時に禁じられている（TaskFormDialog）が、防御的にここでも落とす。
+    subtasks: input.type === 'simple' ? normalizeSubtasks(input.subtasks) : null,
   };
 }
 
@@ -149,6 +156,15 @@ export async function updateTask(id: string, input: TaskInput): Promise<Task | n
     task.target_value !== null &&
     task.current_value !== null &&
     task.current_value < task.target_value
+  ) {
+    task.status = 'active';
+  }
+  // 同じ理屈をサブタスクにも適用する。完了済みタスクに未完了の手順を足したのなら
+  // まだ終わっていない（定量で現在値を目標未満へ編集したときと対称）。
+  if (
+    task.status === 'completed' &&
+    task.type === 'simple' &&
+    normalizeSubtasks(task.subtasks)?.some((s) => !s.done)
   ) {
     task.status = 'active';
   }
@@ -359,23 +375,77 @@ function newCompletionLog(taskId: string, completedAt: number): CompletionLog {
   return { id: generateId(), task_id: taskId, completed_at: completedAt };
 }
 
+/**
+ * 開いている Dexie トランザクションの中で 1 行を完了にし、繰り返しなら完了ログを残す。
+ *
+ * 「完了とは何をすることか」を 1 箇所に閉じるための内部関数。明示的な完了（completeTask）と、
+ * サブタスクが全部埋まったことによる自動完了（toggleSubtask）で扱いを揃える。
+ * **記録するのは親タスクの完了であって、サブタスクの完了ではない**（サブタスクは
+ * 親の内部状態であり達成の単位ではないため、completions には現れない）。
+ */
+async function markCompleted(task: Task, now: number): Promise<Task> {
+  const completed: Task = { ...task, status: 'completed', updated_at: now };
+  await db.tasks.put(completed);
+  // 繰り返しタスクは復活時に completed が消えるため、完了をログへ残す（レポート用）。
+  if (task.recurrence_rule) await db.completions.add(newCompletionLog(task.id, now));
+  return completed;
+}
+
 export async function completeTask(id: string): Promise<Task> {
   let result: Task = null as unknown as Task;
   await db.transaction('rw', db.tasks, db.completions, async () => {
     const existing = await db.tasks.get(id);
     if (!existing) throw new Error(`Task ${id} not found`);
-    const now = Date.now();
-    const completed: Task = {
-      ...existing,
-      status: 'completed',
-      updated_at: now,
-    };
-    await db.tasks.put(completed);
-    // 繰り返しタスクは復活時に completed が消えるため、完了をログへ残す（レポート用）。
-    if (existing.recurrence_rule) await db.completions.add(newCompletionLog(id, now));
-    result = completed;
+    result = await markCompleted(existing, Date.now());
   });
   scheduleSync();
+  return result;
+}
+
+/**
+ * サブタスク 1 件の完了状態を反転する。
+ *
+ * ## 親との連動（提案書 D-3 = 案 a）
+ *
+ * - **子が全部完了したら親も完了にする。** 定量タスクが目標値に達したら自動完了する
+ *   既存挙動（setQuantitativeValue）と同じ考え方。
+ * - **親→子の連動はしない。** 親をチェックしても子は触らない。触ると未完了に戻したときに
+ *   元の子の状態を復元できず、情報が消える。
+ * - **「全部完了だった状態から外れたとき」だけ完了を取り消す。** これは自動完了の
+ *   ちょうど逆操作にあたる。未完了の子を残したまま確認ダイアログを経て完了させた
+ *   タスク（例: 2/4 で完了）は、その後どの子を触っても completed のまま残る
+ *   （ユーザーが明示的に「もう終わったことにする」と決めた判断を、子の操作で覆さない）。
+ */
+export async function toggleSubtask(taskId: string, subtaskId: string): Promise<Task | null> {
+  let result: Task | null = null;
+  await db.transaction('rw', db.tasks, db.completions, async () => {
+    const existing = await db.tasks.get(taskId);
+    if (!existing) return;
+    // 壊れた値・別バージョンのクライアントが書いた形をそのまま書き戻さない。
+    const list = normalizeSubtasks(existing.subtasks);
+    if (list === null || !list.some((s) => s.id === subtaskId)) return;
+
+    const next = list.map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+    const now = Date.now();
+    const updated: Task = { ...existing, subtasks: next, updated_at: now };
+
+    if (existing.status === 'active' && isAllSubtasksDone(next)) {
+      result = await markCompleted(updated, now);
+      return;
+    }
+    if (existing.status === 'completed' && isAllSubtasksDone(list) && !isAllSubtasksDone(next)) {
+      // 自動完了の取り消し。完了ログも対にして取り下げる（レポートの水増しを防ぐ）。
+      const revived: Task = { ...updated, status: 'active' };
+      await db.tasks.put(revived);
+      if (existing.recurrence_rule) await removeLatestCompletion(taskId);
+      result = revived;
+      return;
+    }
+
+    await db.tasks.put(updated);
+    result = updated;
+  });
+  if (result) scheduleSync();
   return result;
 }
 
@@ -447,6 +517,12 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
       if (t.status === 'completed' && isPeriodElapsed(t.updated_at, now, rule.type)) {
         next.status = 'active';
         if (t.type === 'quantitative') next.current_value = 0;
+        // サブタスクも周期ごとにやり直す（「毎日やる 3 ステップ」を表現できるように）。
+        // 定量の current_value を 0 に戻すのと同じ位置・同じ条件にしてあるので、
+        // active のまま持ち越したタスクの子は保持される（途中まで進んだ手順を消さない）。
+        // **このリセットはクライアント専任。** サーバー（Workers）に書かせない（I-1）。
+        const list = normalizeSubtasks(next.subtasks);
+        if (list !== null) next.subtasks = list.map((s) => ({ ...s, done: false }));
         changed = true;
         revived++;
       }
