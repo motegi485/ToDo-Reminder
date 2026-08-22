@@ -6,7 +6,8 @@ import { taskOrderKey } from './sort';
 import { normalizeColor } from './taskColors';
 import { projectNameError } from './validation';
 import { migrateProjectState } from './projectExpansion';
-import { isAllSubtasksDone, normalizeSubtasks } from './subtasks';
+import { isAllSubtasksDone, newSubtask, normalizeSubtasks } from './subtasks';
+import { CONSTANTS } from './constants';
 import type { CompletionLog, RecurrenceRule, Subtask, Task, TaskType } from '@/types';
 
 // 手動並べ替えの端（先頭/末尾）へ置くときのマージン、および衝突時リナンバーの等間隔幅。
@@ -444,6 +445,89 @@ export async function toggleSubtask(taskId: string, subtaskId: string): Promise<
 
     await db.tasks.put(updated);
     result = updated;
+  });
+  if (result) scheduleSync();
+  return result;
+}
+
+/**
+ * カード上からサブタスクを 1 件追加する（フォームを開かずに手順を足す導線）。
+ *
+ * 上限を超える場合と空文字は何もせず null を返す（呼び出し側でトーストを出す）。
+ * 完了済みのタスクに未完了の手順を足したらまだ終わっていないので active へ戻す
+ * （updateTask でフォームから足したときと同じ扱い）。
+ */
+export async function addSubtask(taskId: string, title: string): Promise<Task | null> {
+  const trimmed = title.trim();
+  if (trimmed.length === 0) return null;
+  let result: Task | null = null;
+  await db.transaction('rw', db.tasks, async () => {
+    const existing = await db.tasks.get(taskId);
+    if (!existing) return;
+    const list = normalizeSubtasks(existing.subtasks) ?? [];
+    if (list.length >= CONSTANTS.SUBTASK_MAX_COUNT) return;
+    const next = [...list, newSubtask(generateId(), trimmed)];
+    const task: Task = { ...existing, subtasks: next, updated_at: Date.now() };
+    if (task.status === 'completed') task.status = 'active';
+    await db.tasks.put(task);
+    result = task;
+  });
+  if (result) scheduleSync();
+  return result;
+}
+
+/**
+ * サブタスクを 1 件削除する。
+ *
+ * **削除で親を自動完了させない。** 残りが全部完了になったとしても、削除は進捗の記録ではなく
+ * 構造の編集なので、「不要になった手順を消したら勝手にタスクが完了した」という挙動は作らない
+ * （完了させたいときはユーザーが親をチェックする）。最後の 1 件を消したら subtasks は null に畳む。
+ */
+export async function removeSubtask(taskId: string, subtaskId: string): Promise<Task | null> {
+  let result: Task | null = null;
+  await db.transaction('rw', db.tasks, async () => {
+    const existing = await db.tasks.get(taskId);
+    if (!existing) return;
+    const list = normalizeSubtasks(existing.subtasks);
+    if (list === null || !list.some((s) => s.id === subtaskId)) return;
+    const next = list.filter((s) => s.id !== subtaskId);
+    const task: Task = {
+      ...existing,
+      subtasks: next.length > 0 ? next : null,
+      updated_at: Date.now(),
+    };
+    await db.tasks.put(task);
+    result = task;
+  });
+  if (result) scheduleSync();
+  return result;
+}
+
+/**
+ * サブタスクを並べ替える。並び順は配列の順序そのもの（親タスクの sort_order のような
+ * fractional 採番は使わない）。子は 1 行にまとまっているので、並べ替えても書き込みは親 1 行だけ。
+ */
+export async function reorderSubtasks(
+  taskId: string,
+  activeId: string,
+  overId: string,
+): Promise<Task | null> {
+  if (activeId === overId) return null;
+  let result: Task | null = null;
+  await db.transaction('rw', db.tasks, async () => {
+    const existing = await db.tasks.get(taskId);
+    if (!existing) return;
+    const list = normalizeSubtasks(existing.subtasks);
+    if (list === null) return;
+    const from = list.findIndex((s) => s.id === activeId);
+    const to = list.findIndex((s) => s.id === overId);
+    if (from < 0 || to < 0) return;
+    const next = [...list];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    const task: Task = { ...existing, subtasks: next, updated_at: Date.now() };
+    await db.tasks.put(task);
+    result = task;
   });
   if (result) scheduleSync();
   return result;

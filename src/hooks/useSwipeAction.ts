@@ -286,6 +286,18 @@ export function useSwipeAction({
         lock = 'y';
         return;
       }
+      // カード内に「自分でドラッグを扱う要素」がある場合（サブタスクの並べ替えハンドル）、
+      // そこから始まったタッチは最初からスワイプの対象外にする。
+      //
+      // React の stopPropagation では止められないことに注意: このリスナは根の要素に
+      // **native** で張ってあり、React が委譲先（ルートコンテナ）でイベントを配る頃には
+      // ここは既に実行済みになる。逆にハンドル側で native に伝播を止めると、今度は
+      // React まで届かなくなって @dnd-kit のセンサーが起動しない。そのため
+      // 「伝播を止める」のではなく「印を見て降りる」形にしている。
+      if ((e.target as Element | null)?.closest?.('[data-swipe-ignore]')) {
+        lock = 'y';
+        return;
+      }
       const t = e.touches[0];
       startX = t.clientX;
       startY = t.clientY;
