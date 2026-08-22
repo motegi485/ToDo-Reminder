@@ -23,16 +23,27 @@ DB 名 `TodoDB`、最新バージョン **3**（`src/lib/db.ts`）。
 | `users` | `sync_code` | — | 同期コードと Push 購読情報 |
 | `tasks` | `id` (UUID v4) | `sync_code, status, reminder_time, due_date, project_name, created_at, updated_at` | **タスクとメモ**の本体（`kind` で判別） |
 | `meta` | `key` | — | 補助メタ（拡張用・現在ほぼ未使用） |
-| `completions` | `id` | `task_id, completed_at` | 繰り返しタスクの完了履歴 |
+| `completions` | `id` | `task_id, completed_at` | タスクの完了履歴（種別を問わない） |
 
-`kind` と `subtasks` はインデックスしていません。既存行はこれらが `undefined` のため `where(...)` に載らず取りこぼすので、
-絞り込みはメモリ上のフィルタ（`isMemo()` / `normalizeSubtasks()`）で行います。そのため列の追加だけで済み、Dexie のバージョンは 3 のままです。
+`kind` と `subtasks`、および `completions` の `project_name` はインデックスしていません。既存行はこれらが `undefined` のため `where(...)` に載らず取りこぼすので、
+絞り込みはメモリ上のフィルタ（`isMemo()` / `normalizeSubtasks()` / `?? null`）で行います。そのため列の追加だけで済み、Dexie のバージョンは 3 のままです。
 
 ### `completions` が別ストアな理由
 
-繰り返しタスクは復活すると `status` が `completed` → `active` に戻るため、**タスク行だけではいつ完了したかの
-履歴が残りません**。レポートのストリーク・週間達成率・月次バーはこの履歴が必要なので、完了のたびに
-別ストアへ追記します。ローカル専用で、サーバーには同期されません。
+**タスク行だけでは「いつ完了したか」が残りません。** 繰り返しタスクは復活すると `status` が
+`completed` → `active` に戻り、非繰り返しタスクは `updated_at` を完了時刻の代わりにするしかないのに
+完了後の編集やプロジェクト名変更でその値が動きます。レポートのストリーク・ヒートマップ・
+プロジェクト別内訳はこの履歴が必要なので、**種別を問わず完了のたびに**別ストアへ追記します。
+ローカル専用で、サーバーには同期されません（レポートが端末ごとに違うのは仕様です）。
+
+書き込みは必ず `src/lib/taskRepo.ts` を通します（`db.completions.add` を直接呼ばない）。
+「完了とは何をすることか」は `markCompleted` に、「完了が退いたら対でログを取り下げる」は
+`removeLatestCompletion` の呼び出し側に閉じてあり、片方だけ足すとレポートが静かにずれます。
+
+| 列 | 内容 |
+|---|---|
+| `id` / `task_id` / `completed_at` | 完了 1 回ぶんの記録 |
+| `project_name` | **完了時点のプロジェクト名のスナップショット。** 集計時に `task_id` から現在の `tasks` を引くと、[I-6](./invariants.md#i-6-サーバーは-color-と-project_name-を解釈しない) のとおりプロジェクトは文字列一致の派生表示なので、リネームで過去の内訳が丸ごと書き換わります。この列より前に記録された行は `undefined` で、未分類（「その他」）として集計されます |
 
 ### メモは `tasks` に同居する
 
