@@ -9,6 +9,7 @@
 //   TITLE_MAX_LENGTH        <-> CONSTANTS.TITLE_MAX_LENGTH
 //   PROJECT_NAME_MAX_LENGTH <-> CONSTANTS.PROJECT_NAME_MAX_LENGTH
 //   MEMO_VALUE_MAX_LENGTH   <-> CONSTANTS.MEMO_VALUE_MAX_LENGTH
+//   SUBTASKS_MAX_BYTES      <-> CONSTANTS.SUBTASKS_MAX_BYTES
 export const LIMITS = {
   /** タスク名。クライアントは入力欄の maxLength でも同値を強制する。 */
   TITLE_MAX_LENGTH: 200,
@@ -32,6 +33,16 @@ export const LIMITS = {
   MEMO_TYPE_MAX_LENGTH: 32,
   /** 行の種別（kind）。'memo' の想定。 */
   KIND_MAX_LENGTH: 16,
+
+  /**
+   * subtasks を JSON 文字列化した後の長さ（UTF-16 コード単位）。
+   * クライアントは 20 件 × 100 文字で制限する（CONSTANTS.SUBTASK_MAX_COUNT /
+   * SUBTASK_TITLE_MAX_LENGTH）。素の JSON は約 3,400 だが、タイトルが全て `"` の
+   * 最悪ケースは JSON エスケープで約 5,380 まで膨らむため、そこに届かない値にする。
+   * ここを下げると「クライアントの上限内の入力がサーバーで invalid として黙って落ちる」
+   * 状態が作れてしまう（I-9）。サーバーは中身を解釈せず、配列であることと長さだけ見る。
+   */
+  SUBTASKS_MAX_BYTES: 6144,
 
   /**
    * 1 リクエストで受け付けるタスク件数。`chunk.ts` の CHUNK_SIZE と同値にする。

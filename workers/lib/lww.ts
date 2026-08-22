@@ -25,10 +25,14 @@ interface TaskRow {
   kind: string | null;
   memo_type: string | null;
   memo_value: string | null;
+  // タスク内のチェックリスト。recurrence_rule と同じく JSON 文字列として保存する。
+  // サーバーは中身を解釈せず、配列であることと長さだけ見て素通しする。
+  subtasks: string | null;
 }
 
-export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule'> {
+export interface TaskPayload extends Omit<TaskRow, 'recurrence_rule' | 'subtasks'> {
   recurrence_rule: unknown;
+  subtasks: unknown;
 }
 
 interface LWWResult {
@@ -63,6 +67,7 @@ function payloadToRow(task: TaskPayload): TaskRow {
     kind: task.kind ?? null,
     memo_type: task.memo_type ?? null,
     memo_value: task.memo_value ?? null,
+    subtasks: task.subtasks != null ? JSON.stringify(task.subtasks) : null,
   };
 }
 
@@ -91,6 +96,9 @@ export function rowToPayload(row: Record<string, unknown>): TaskPayload {
     kind: (row.kind as string | null) ?? null,
     memo_type: (row.memo_type as string | null) ?? null,
     memo_value: (row.memo_value as string | null) ?? null,
+    // クライアントは受け取った値をそのまま Dexie へ入れる（sync.ts は正規化しない）ので、
+    // recurrence_rule と同じくここでオブジェクトへ戻して返す。
+    subtasks: row.subtasks != null ? JSON.parse(row.subtasks as string) : null,
   };
 }
 
@@ -159,6 +167,25 @@ function isValidPayload(t: TaskPayload, nowMs: number): boolean {
   if (!isNullableString(t.kind, LIMITS.KIND_MAX_LENGTH)) return false;
   if (!isNullableString(t.memo_type, LIMITS.MEMO_TYPE_MAX_LENGTH)) return false;
   if (!isNullableString(t.memo_value, LIMITS.MEMO_VALUE_MAX_LENGTH)) return false;
+
+  // subtasks も同じ「素通し」扱い。中身（id / title / done）の妥当性は検証しない:
+  // ここで形を固定すると、クライアントが子にフィールドを 1 つ足した瞬間に
+  // サブタスクを持つタスクだけがサイレントに同期されなくなる。
+  // 見るのは 2 点だけ。
+  //   1. 配列であること — オブジェクトや文字列を通すと、pull 側でそのまま Dexie に
+  //      入って全端末のカード描画が壊れる（クライアントの normalizeSubtasks が
+  //      「子なし」に落として救うが、サーバーに壊れた形を溜めない）
+  //   2. JSON 化した長さ — 上限が無いと 1 リクエストで大量に書き込める（title と同じ理屈）
+  if (t.subtasks != null) {
+    if (!Array.isArray(t.subtasks)) return false;
+    let json: string;
+    try {
+      json = JSON.stringify(t.subtasks);
+    } catch {
+      return false; // 循環参照・深すぎるネストなど
+    }
+    if (json.length > LIMITS.SUBTASKS_MAX_BYTES) return false;
+  }
 
   // reminder_time は Date.toISOString() の出力そのものだけを許す。
   // cron の候補クエリは辞書順比較でインデックスを使うため、書式が崩れると
@@ -288,8 +315,8 @@ export async function applyLWW(
            (id, sync_code, title, type, status, current_value, target_value,
             due_date, reminder_offset, reminder_time, recurrence_rule,
             project_name, sort_order, created_at, updated_at, tz_offset, color,
-            kind, memo_type, memo_value, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+            kind, memo_type, memo_value, subtasks, server_seq)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
                    MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))
            ON CONFLICT(id) DO UPDATE SET
              sync_code       = excluded.sync_code,
@@ -311,6 +338,7 @@ export async function applyLWW(
              kind            = excluded.kind,
              memo_type       = excluded.memo_type,
              memo_value      = excluded.memo_value,
+             subtasks        = excluded.subtasks,
              server_seq      = excluded.server_seq
            WHERE excluded.updated_at >= tasks.updated_at
              AND (tasks.sync_code = excluded.sync_code OR tasks.sync_code = ?)`,
@@ -336,6 +364,8 @@ export async function applyLWW(
           row.kind,
           row.memo_type,
           row.memo_value,
+          row.subtasks,
+          // ここから下は server_seq の採番用。列の bind より必ず後ろに置くこと。
           syncCode,
           nowMs,
           // null を渡すと SQL の比較結果が NULL（= 偽）になるため、申告なしの移動は
