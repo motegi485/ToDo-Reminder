@@ -32,11 +32,26 @@ export interface Subtask {
   done: boolean;
 }
 
-/** 繰り返しタスクを完了した記録（レポート集計用、ローカル保存）。 */
+/**
+ * タスクを完了した記録（レポート集計用、ローカル保存）。
+ *
+ * 繰り返し・非繰り返しを問わず、完了のたびに 1 行追記する。タスク行の `updated_at` で
+ * 代用しないのは、繰り返しは復活で `completed` が消え、非繰り返しは完了後の編集で
+ * 日付が動くため。「いつ終わらせたか」はこのストアだけが持つ。
+ */
 export interface CompletionLog {
   id: string;
   task_id: string;
   completed_at: number;
+  /**
+   * 完了時点のプロジェクト名のスナップショット。`undefined` はこの列より前に記録された行
+   * （＝繰り返しタスクの完了だけを記録していた時代）で、内訳では未分類（「その他」）に寄せる。
+   *
+   * 集計時に `task_id` から現在の `tasks` を引かない理由: プロジェクトは `project_name` の
+   * 文字列一致による派生表示（invariants.md I-6）なので、リネームすると過去の内訳が丸ごと
+   * 書き換わってしまう。タスクを削除しても内訳から消えないのも同じ理由（完了した事実は動かない）。
+   */
+  project_name?: string | null;
 }
 
 export interface Task {
