@@ -147,31 +147,43 @@ export async function createTask(input: TaskInput): Promise<Task> {
 }
 
 export async function updateTask(id: string, input: TaskInput): Promise<Task | null> {
-  const existing = await db.tasks.get(id);
-  if (!existing) return null;
-  const task = buildTask(input, existing);
-  // 完了済みの定量タスクで、現在値が目標値を下回る編集をした場合は未完了へ戻す
-  if (
-    task.status === 'completed' &&
-    task.type === 'quantitative' &&
-    task.target_value !== null &&
-    task.current_value !== null &&
-    task.current_value < task.target_value
-  ) {
-    task.status = 'active';
-  }
-  // 同じ理屈をサブタスクにも適用する。完了済みタスクに未完了の手順を足したのなら
-  // まだ終わっていない（定量で現在値を目標未満へ編集したときと対称）。
-  if (
-    task.status === 'completed' &&
-    task.type === 'simple' &&
-    normalizeSubtasks(task.subtasks)?.some((s) => !s.done)
-  ) {
-    task.status = 'active';
-  }
-  await db.tasks.put(task);
-  scheduleSync();
-  return task;
+  let result: Task | null = null;
+  // 完了ログを取り下げうるので tasks と completions を同じトランザクションに入れる。
+  // 注意: このトランザクション内に非 Dexie の await を足さないこと（途中オートコミットで破損する）。
+  await db.transaction('rw', db.tasks, db.completions, async () => {
+    const existing = await db.tasks.get(id);
+    if (!existing) return;
+    const task = buildTask(input, existing);
+    // 完了済みの定量タスクで、現在値が目標値を下回る編集をした場合は未完了へ戻す
+    if (
+      task.status === 'completed' &&
+      task.type === 'quantitative' &&
+      task.target_value !== null &&
+      task.current_value !== null &&
+      task.current_value < task.target_value
+    ) {
+      task.status = 'active';
+    }
+    // 同じ理屈をサブタスクにも適用する。完了済みタスクに未完了の手順を足したのなら
+    // まだ終わっていない（定量で現在値を目標未満へ編集したときと対称）。
+    if (
+      task.status === 'completed' &&
+      task.type === 'simple' &&
+      normalizeSubtasks(task.subtasks)?.some((s) => !s.done)
+    ) {
+      task.status = 'active';
+    }
+    await db.tasks.put(task);
+    // 編集によって完了が退いたのなら、完了ログも対にして取り下げる。ここを抜かすと
+    // 「未完了に戻したのにヒートマップのセルが濃いまま」になり、値を戻して完了させ直すと
+    // 実際には 1 回の完了がログ 2 件に増える。
+    if (existing.status === 'completed' && task.status === 'active') {
+      await removeLatestCompletion(id);
+    }
+    result = task;
+  });
+  if (result) scheduleSync();
+  return result;
 }
 
 export async function deleteTask(id: string): Promise<void> {
@@ -372,23 +384,34 @@ async function renumberActive(
   await db.tasks.bulkPut(updated);
 }
 
-function newCompletionLog(taskId: string, completedAt: number): CompletionLog {
-  return { id: generateId(), task_id: taskId, completed_at: completedAt };
+/**
+ * 完了ログ 1 件。プロジェクト名は**完了時点の値をスナップショット**として焼き付ける。
+ * 後からリネームされても過去の内訳が動かないようにするため（types/index.ts のコメント）。
+ */
+function newCompletionLog(task: Task, completedAt: number): CompletionLog {
+  return {
+    id: generateId(),
+    task_id: task.id,
+    completed_at: completedAt,
+    project_name: task.project_name,
+  };
 }
 
 /**
- * 開いている Dexie トランザクションの中で 1 行を完了にし、繰り返しなら完了ログを残す。
+ * 開いている Dexie トランザクションの中で 1 行を完了にし、完了ログを残す。
  *
- * 「完了とは何をすることか」を 1 箇所に閉じるための内部関数。明示的な完了（completeTask）と、
- * サブタスクが全部埋まったことによる自動完了（toggleSubtask）で扱いを揃える。
+ * 「完了とは何をすることか」を 1 箇所に閉じるための内部関数。明示的な完了（completeTask）、
+ * サブタスクが全部埋まったことによる自動完了（toggleSubtask）、定量タスクが目標値に達した
+ * ことによる自動完了（setQuantitativeValue）で扱いを揃える。
  * **記録するのは親タスクの完了であって、サブタスクの完了ではない**（サブタスクは
  * 親の内部状態であり達成の単位ではないため、completions には現れない）。
  */
 async function markCompleted(task: Task, now: number): Promise<Task> {
   const completed: Task = { ...task, status: 'completed', updated_at: now };
   await db.tasks.put(completed);
-  // 繰り返しタスクは復活時に completed が消えるため、完了をログへ残す（レポート用）。
-  if (task.recurrence_rule) await db.completions.add(newCompletionLog(task.id, now));
+  // 繰り返し・非繰り返しを問わず完了をログへ残す（レポート用）。タスク行の updated_at では
+  // 代用できない: 繰り返しは復活で completed が消え、非繰り返しは完了後の編集で日付が動く。
+  await db.completions.add(newCompletionLog(task, now));
   return completed;
 }
 
@@ -438,7 +461,7 @@ export async function toggleSubtask(taskId: string, subtaskId: string): Promise<
       // 自動完了の取り消し。完了ログも対にして取り下げる（レポートの水増しを防ぐ）。
       const revived: Task = { ...updated, status: 'active' };
       await db.tasks.put(revived);
-      if (existing.recurrence_rule) await removeLatestCompletion(taskId);
+      await removeLatestCompletion(taskId);
       result = revived;
       return;
     }
@@ -461,15 +484,18 @@ export async function addSubtask(taskId: string, title: string): Promise<Task | 
   const trimmed = title.trim();
   if (trimmed.length === 0) return null;
   let result: Task | null = null;
-  await db.transaction('rw', db.tasks, async () => {
+  await db.transaction('rw', db.tasks, db.completions, async () => {
     const existing = await db.tasks.get(taskId);
     if (!existing) return;
     const list = normalizeSubtasks(existing.subtasks) ?? [];
     if (list.length >= CONSTANTS.SUBTASK_MAX_COUNT) return;
     const next = [...list, newSubtask(generateId(), trimmed)];
     const task: Task = { ...existing, subtasks: next, updated_at: Date.now() };
-    if (task.status === 'completed') task.status = 'active';
+    const revived = task.status === 'completed';
+    if (revived) task.status = 'active';
     await db.tasks.put(task);
+    // 完了が退いたなら完了ログも対にして取り下げる（updateTask で手順を足したときと同じ扱い）。
+    if (revived) await removeLatestCompletion(taskId);
     result = task;
   });
   if (result) scheduleSync();
@@ -543,7 +569,7 @@ export async function uncompleteTask(id: string): Promise<void> {
       updated_at: Date.now(),
     });
     // 完了を取り消したら直近の完了ログも取り消す。
-    if (existing.recurrence_rule) await removeLatestCompletion(id);
+    await removeLatestCompletion(id);
   });
   scheduleSync();
 }
@@ -562,15 +588,8 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
     const sanitized = Math.max(0, Math.floor(value));
     const now = Date.now();
     if (sanitized >= existing.target_value && existing.status === 'active') {
-      const completed: Task = {
-        ...existing,
-        current_value: sanitized,
-        status: 'completed',
-        updated_at: now,
-      };
-      await db.tasks.put(completed);
-      if (existing.recurrence_rule) await db.completions.add(newCompletionLog(id, now));
-      task = completed;
+      // 目標到達による自動完了。完了ログの扱いは明示的な完了と同じにする（markCompleted に閉じる）。
+      task = await markCompleted({ ...existing, current_value: sanitized }, now);
     } else {
       task = { ...existing, current_value: sanitized, updated_at: now };
       await db.tasks.put(task);

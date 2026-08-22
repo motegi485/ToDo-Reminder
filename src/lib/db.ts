@@ -24,6 +24,11 @@ class TodoDB extends Dexie {
       tasks: 'id, sync_code, status, reminder_time, due_date, project_name, created_at, updated_at',
       meta: 'key',
     });
+    // completions に後から足した project_name はインデックスしていないため、列の追加だけで
+    // 済みバージョンは 3 のまま（tasks の kind / subtasks と同じ扱い）。集計は completed_at の
+    // 範囲クエリで絞ってからメモリ上で畳むので、project_name のインデックスは要らない。
+    // 既存行はこの列が undefined になるが、読む側が `?? null` で未分類へ寄せる。
+    //
     // v3: 繰り返しを「同じタスクの復活」方式へ移行。
     //   - 完了ログテーブル(completions)を追加（レポート用、ローカル保存）
     //   - 旧 'custom' を 'daily' に変換
