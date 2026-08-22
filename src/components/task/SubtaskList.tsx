@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { GripVertical, Plus, X } from 'lucide-react';
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
@@ -9,6 +11,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type Modifier,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -26,6 +29,13 @@ import type { accentForTask } from './accentColor';
 import type { Subtask } from '@/types';
 
 type Accent = ReturnType<typeof accentForTask>;
+
+/**
+ * 横方向のドリフトを殺す。子の並べ替えは縦一列なので、横に動かせても行き先は変わらず
+ * 「カードからはみ出して迷子になる」だけになる。@dnd-kit/modifiers を足さずに済むよう
+ * ここで書く（modifiers は transform を受け取って返すだけの関数）。
+ */
+const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 });
 
 interface Props {
   taskId: string;
@@ -59,6 +69,8 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
+  // ドラッグ中の行。DragOverlay に何を描くかを決めるためだけに持つ。
+  const [activeId, setActiveId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // **親カードと違い、タッチでも長押しを要求しない。**
@@ -77,6 +89,7 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
   );
 
   const atLimit = subtasks.length >= CONSTANTS.SUBTASK_MAX_COUNT;
+  const activeSubtask = activeId ? subtasks.find((s) => s.id === activeId) : undefined;
 
   const handleToggle = async (sub: Subtask) => {
     if (pending.has(sub.id)) return; // 二度押しで反転が打ち消し合うのを防ぐ
@@ -96,6 +109,7 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
   };
 
   const handleDragEnd = (e: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     void reorderSubtasks(taskId, active.id as string, over.id as string).catch(() =>
@@ -122,7 +136,14 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
 
   return (
     <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToVerticalAxis]}
+        onDragStart={(e) => setActiveId(e.active.id as string)}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
         <SortableContext items={subtasks.map((s) => s.id)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-0.5">
             {subtasks.map((s) => (
@@ -141,6 +162,30 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
             ))}
           </ul>
         </SortableContext>
+
+        {/* **DragOverlay を body へ portal する。**
+            子リストは展開アニメーションのために overflow-hidden の内側にいるので、
+            行をその場で動かすと箱の外へ出た瞬間に切り取られ、さらにカード内の重なり順に
+            閉じ込められて他のカードの下へ潜り込む。オーバーレイを body 直下に出せば、
+            祖先のクリップにも重なり順にも縛られない。
+
+            modifiers は DndContext とは別に渡す必要がある。DndContext 側の指定は
+            draggable の transform に効き、実際に見えているオーバーレイには効かない。 */}
+        {createPortal(
+          <DragOverlay dropAnimation={null} modifiers={[restrictToVerticalAxis]}>
+            {activeSubtask && (
+              <ul className="pointer-events-none list-none">
+                <SubtaskRowView
+                  subtask={activeSubtask}
+                  accent={accent}
+                  checked={activeSubtask.done}
+                  dragging
+                />
+              </ul>
+            )}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
 
       {/* インライン追加。フォームを開かずに思いついた手順を足せるようにする。 */}
@@ -227,19 +272,76 @@ function SubtaskRow({ subtask, accent, checked, onToggle, onRemove }: RowProps) 
   );
 
   return (
-    <li
-      ref={setNodeRef}
+    <SubtaskRowView
+      subtask={subtask}
+      accent={accent}
+      checked={checked}
+      onToggle={onToggle}
+      onRemove={onRemove}
+      rowRef={setNodeRef}
+      // P-15: Transform ではなく Translate。scaleX/scaleY を出さない。
       style={{
-        transform: CSS.Transform.toString(transform),
+        transform: CSS.Translate.toString(transform),
         transition: prefersReducedMotion() ? undefined : transition,
       }}
-      className={['group flex items-start gap-1', isDragging ? 'relative z-10 opacity-80' : ''].join(' ')}
+      // ドラッグ中の実体は DragOverlay 側が描くので、元の行は薄くして「抜けた跡」にする。
+      placeholder={isDragging}
+      handleRef={setActivatorNodeRef}
+      handleProps={{ ...attributes, ...handleListeners }}
+    />
+  );
+}
+
+interface ViewProps {
+  subtask: Subtask;
+  accent: Accent;
+  checked: boolean;
+  onToggle?: () => void;
+  onRemove?: () => void;
+  rowRef?: (el: HTMLElement | null) => void;
+  style?: React.CSSProperties;
+  /** 元の行がドラッグで抜けた状態（薄く表示するだけ。実体はオーバーレイ側）。 */
+  placeholder?: boolean;
+  /** オーバーレイとして浮いている行。 */
+  dragging?: boolean;
+  handleRef?: (el: HTMLElement | null) => void;
+  handleProps?: Record<string, unknown>;
+}
+
+/**
+ * 行の見た目。並べ替え中の実体（DragOverlay）と、リスト内の行の両方で使う。
+ * オーバーレイ側は `useSortable` を呼べないので、見た目だけをここに切り出している。
+ */
+function SubtaskRowView({
+  subtask,
+  accent,
+  checked,
+  onToggle,
+  onRemove,
+  rowRef,
+  style,
+  placeholder,
+  dragging,
+  handleRef,
+  handleProps,
+}: ViewProps) {
+  return (
+    <li
+      ref={rowRef}
+      style={style}
+      className={[
+        'group flex items-start gap-1',
+        placeholder ? 'opacity-30' : '',
+        dragging
+          ? 'rounded-lg bg-white px-2 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700'
+          : '',
+      ].join(' ')}
     >
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onToggle();
+          onToggle?.();
         }}
         aria-pressed={checked}
         className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md py-1.5 pr-1 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
@@ -287,7 +389,7 @@ function SubtaskRow({ subtask, accent, checked, onToggle, onRemove }: RowProps) 
         aria-label={`「${subtask.title}」を削除`}
         onClick={(e) => {
           e.stopPropagation();
-          onRemove();
+          onRemove?.();
         }}
         className="mt-1 shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-600"
       >
@@ -297,9 +399,8 @@ function SubtaskRow({ subtask, accent, checked, onToggle, onRemove }: RowProps) 
       {/* 並べ替えハンドル。ここからしかドラッグを始められない。 */}
       <button
         type="button"
-        ref={setActivatorNodeRef}
-        {...attributes}
-        {...handleListeners}
+        ref={handleRef}
+        {...handleProps}
         data-swipe-ignore
         aria-label={`「${subtask.title}」を並べ替え`}
         className="mt-1 shrink-0 cursor-grab touch-none rounded p-1 text-slate-300 active:cursor-grabbing dark:text-slate-600"
