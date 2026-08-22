@@ -1,6 +1,7 @@
 import { CONSTANTS } from './constants';
-import type { MemoType, RecurrenceRule, TaskType } from '@/types';
+import type { MemoType, RecurrenceRule, Subtask, TaskType } from '@/types';
 import { periodMinutes } from './recurrence';
+import { subtasksJsonLength } from './subtasks';
 
 export interface FormValues {
   title: string;
@@ -16,6 +17,8 @@ export interface FormValues {
   project_name: string | null;
   // チェックボックスのアクセント色。null は自動配色（種類×期限）。
   color: string | null;
+  // タスク内のチェックリスト。simple タスクのみ（定量では保存時に null へ落ちる）。
+  subtasks: Subtask[] | null;
 }
 
 export type FieldKey =
@@ -26,7 +29,8 @@ export type FieldKey =
   | 'reminder_offset'
   | 'reminder_at'
   | 'recurrence_rule'
-  | 'project_name';
+  | 'project_name'
+  | 'subtasks';
 
 export type ValidationErrors = Partial<Record<FieldKey, string>>;
 
@@ -100,6 +104,24 @@ export function validateForm(
   if (v.project_name !== null) {
     const err = projectNameError(v.project_name.trim());
     if (err) errors.project_name = err;
+  }
+
+  // V-10 subtasks（simple タスクのみ。定量では保存時に null へ落ちるので検証しない）
+  if (v.type === 'simple' && v.subtasks !== null) {
+    if (v.subtasks.length > CONSTANTS.SUBTASK_MAX_COUNT) {
+      errors.subtasks = `サブタスクは ${CONSTANTS.SUBTASK_MAX_COUNT} 件までです`;
+    } else if (v.subtasks.some((s) => s.title.trim().length === 0)) {
+      errors.subtasks = '空のサブタスクがあります';
+    } else if (
+      v.subtasks.some((s) => s.title.length > CONSTANTS.SUBTASK_TITLE_MAX_LENGTH)
+    ) {
+      errors.subtasks = `サブタスクは ${CONSTANTS.SUBTASK_TITLE_MAX_LENGTH} 文字以内にしてください`;
+    } else if (subtasksJsonLength(v.subtasks) > CONSTANTS.SUBTASKS_MAX_BYTES) {
+      // 件数・文字数を満たしていても、JSON エスケープが多い入力（引用符など）では
+      // サーバーの長さ上限に触れうる。ここで止めないと、サーバーが invalid として
+      // 黙って落とし、ユーザーには「一部のタスクだけ同期されない」としか見えない（I-9）。
+      errors.subtasks = 'サブタスクの内容が長すぎます。件数か文字数を減らしてください';
+    }
   }
 
   return errors;

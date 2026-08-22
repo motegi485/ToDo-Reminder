@@ -8,6 +8,19 @@ export const CONSTANTS = {
   // メモの値。**workers/lib/constants.ts の LIMITS.MEMO_VALUE_MAX_LENGTH と同値に保つこと**
   // （片方だけ変えると「一部のメモだけ同期されない」状態になる）。
   MEMO_VALUE_MAX_LENGTH: 500,
+  // 1 タスクが持てるサブタスクの最大数。展開したカードが画面を埋め尽くさない範囲。
+  SUBTASK_MAX_COUNT: 20,
+  // サブタスクのタイトル。親の TITLE_MAX_LENGTH（200）より短い: 子は「手順」であって
+  // タスク名ではなく、カード内の 1 行に収める前提のため。
+  SUBTASK_TITLE_MAX_LENGTH: 100,
+  // subtasks を JSON 文字列化した後の長さ（JavaScript の UTF-16 コード単位）。
+  // **workers/lib/constants.ts の LIMITS.SUBTASKS_MAX_BYTES と同値に保つこと。**
+  //
+  // 20 件 × 100 文字の素の JSON は約 3,400 コード単位だが、タイトルが全て `"` の
+  // 最悪ケースでは JSON エスケープで約 5,380 まで膨らむ。4096 にすると
+  // 「クライアントの上限（20×100）を満たす入力がサーバーで invalid として
+  // 黙って落ちる」状態が作れてしまうため、そこに届かない値を選ぶ。
+  SUBTASKS_MAX_BYTES: 6144,
   REMINDER_MIN_OFFSET_MIN: 5,
   REMINDER_MIN_LEAD_TIME_MIN: 5,
   CLEANUP_RETENTION_DAYS: 365,
