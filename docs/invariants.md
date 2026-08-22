@@ -354,3 +354,5 @@ localStorage の `todo_notified_reminders` で、**重複排除ストアが別�
 | P-12 | **Windows + OneDrive 配下で `vite build` が `STATUS_STACK_BUFFER_OVERRUN` で落ちる。** OneDrive 外へ退避してビルドする |
 | P-13 | **公開する Markdown は LF で追跡する。** `.gitattributes` が `*.md` を LF に固定する。既存の非 Markdown の改行を、無関係な変更で一括変換しない |
 | P-14 | **`docs/` は Git 追跡対象かつ公開予定。** 実同期コード、鍵、購読 endpoint、利用者データ、バックアップ、ログ生値を置かない |
+| P-15 | **並べ替えカードの transform は `CSS.Translate.toString()` を使う（`CSS.Transform` ではない）。** 後者は `scaleX()/scaleY()` も出力し、`useSortable` は「計測済み矩形 ÷ 実測矩形」から縮尺を導出する。高さの違うカードが混ざる列（サブタスクを展開したカード）では入れ替わりの瞬間に縮尺が 1 から外れ、カードが潰れて見える。縦一列の並べ替えに拡大縮小は不要 |
+| P-16 | **`@dnd-kit` の `activationConstraint` に `delay` を入れたら、その要素は「掴んですぐ動かす」操作を受け付けなくなる。** delay 経過前に `tolerance` を超えて動くとドラッグは中止され、**そのタッチでは再開しない**。長押しが要るのは「同じ面をスクロール・スワイプと取り合う」場合だけで、専用ハンドル（`touch-action: none`）には `distance` 制約を使う |

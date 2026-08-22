@@ -24,7 +24,10 @@ export function SortableMemoCard({ memo, onEdit }: Props) {
       onEdit={onEdit}
       dragRef={setNodeRef}
       dragStyle={{
-        transform: CSS.Transform.toString(transform),
+        // SortableTaskCard と同じ理由で Translate を使う（scaleX/scaleY を出さない）。
+        // メモ自体の高さは一定だが、背の高いタスクカードと同じ列に並ぶため、
+        // 押しのけられる側として同じ縮尺のずれを受ける。
+        transform: CSS.Translate.toString(transform),
         transition: prefersReducedMotion() ? undefined : transition,
       }}
       dragHandleProps={{ ...attributes, ...listeners }}
