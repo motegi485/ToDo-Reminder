@@ -18,11 +18,6 @@ const LEVEL_CLASSES = [
   'bg-brand-700 dark:bg-brand-300',
 ] as const;
 
-// 全セルに内側 1px。level 0 を濃くするだけでは 0 が続く区間で升目の境界が消えるため、
-// 縁を締めて「マス目である」ことを保つ。濃いセルでも浮かないよう地色ではなく低アルファの
-// インクを重ねる。未到来セルには付けない（場所を空けているだけで、マスではない）。
-const RING = 'ring-1 ring-inset ring-slate-900/10 dark:ring-slate-200/[0.15]';
-
 function level(count: number): number {
   if (count === 0) return 0;
   if (count <= 2) return 1;
@@ -52,7 +47,11 @@ const GAP = 'gap-[0.1875rem] sm:gap-[0.25rem]';
 const LABEL_COL = 'w-[1.125rem] shrink-0 pr-1 text-right sm:w-[1.375rem]';
 
 // 曜日・月ラベルの文字。セルが sm で大きくなるぶん、文字も 1 段上げないと相対的に沈む。
-const LABEL_TEXT = 'text-[0.5625rem] text-slate-400 dark:text-slate-500 sm:text-[0.625rem]';
+const LABEL_SIZE = 'text-[0.5625rem] sm:text-[0.625rem]';
+const LABEL_TEXT = `${LABEL_SIZE} text-slate-400 dark:text-slate-500`;
+
+// 月ラベル行に絶対配置する文字の共通形。左右どちらに寄せるかだけ呼び出し側で足す。
+const MONTH_ROW_TEXT = 'absolute top-0 whitespace-nowrap leading-[0.6875rem] sm:leading-[0.8125rem]';
 
 /**
  * 前週と月が変わる週にだけ月名を返す。先頭週は月の途中から始まるので出さない
@@ -125,22 +124,26 @@ export function CompletionHeatmap({ data }: Props) {
             sm 以上は block に戻して従来どおりの縦積み（グリッド → その下に横並びの凡例）にし、
             内容幅へ固定する（凡例の右端をグリッドの右端に揃えるため。ここで伸ばすと
             横スクロールも効かなくなる → P-18）。 */}
-        <div className="flex items-center gap-2 sm:block sm:shrink-0">
+        <div className="flex items-center gap-1 sm:block sm:shrink-0">
           {/* overflow-hidden ではなく auto。溢れた列はスクロールで見せる（P-17 の切り取り事故を避ける）。
               overscroll-x-contain は iOS の「スワイプで戻る」と取り合わないため。
               min-w-0 は必須（P-18）。flex アイテムの既定 min-width: auto は内容幅を下限にするので、
               付け忘れると横スクロールが効かずカードごと横に伸びる。
-              flex-1 で残り幅を取り、凡例をカード右端まで押し出す。sm 以上は親が block なので
-              min-w-0 / flex-1 とも効かなくなり、従来どおり内容幅のブロックに戻る。 */}
-          <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
+              伸ばさずグリッドの内容幅のままにして、余った幅は隣の凡例に渡す。sm 以上は親が
+              block なので min-w-0 も効かなくなり、従来どおり内容幅のブロックに戻る。 */}
+          <div className="min-w-0 overflow-x-auto overscroll-x-contain">
             <div className="w-max">
-              {/* 月ラベル行。左右どちらが今週かをこの行だけで示す。ラベルはセル幅より広いが、
-                  月の変わり目は最短でも 4 週離れるので、absolute で右へはみ出させても
-                  隣のラベルと衝突しない。列幅も崩れない。 */}
+              {/* 月ラベル行。ラベルはセル幅より広いが、月の変わり目は最短でも 4 週離れるので、
+                  absolute ではみ出させても隣のラベルと衝突しない。列幅も崩れない。
+                  右端の列には「今週」を出す。右端が現在であることは画面のどこにも書いておらず、
+                  読み取る手がかりが無かったので、時間軸を示すこの行で名指しする。 */}
               <div className={`flex ${GAP} mb-0.5`}>
                 <div aria-hidden className={LABEL_COL} />
                 {data.weeks.map((week, i) => {
-                  const m = monthLabel(data.weeks, i);
+                  const isCurrent = i === data.weeks.length - 1;
+                  // 今週が月の変わり目に当たったときは「今週」を優先して月名を伏せる。
+                  // 月名は前後の列から追えるが、どこが今週かはこのラベルにしか出ない。
+                  const m = isCurrent ? null : monthLabel(data.weeks, i);
                   return (
                     <div
                       key={week[0].key}
@@ -148,10 +151,15 @@ export function CompletionHeatmap({ data }: Props) {
                       className="relative h-[0.6875rem] w-[1rem] sm:h-[0.8125rem] sm:w-[1.125rem]"
                     >
                       {m && (
+                        <span className={`${MONTH_ROW_TEXT} left-0 ${LABEL_TEXT}`}>{m}</span>
+                      )}
+                      {isCurrent && (
+                        // 月名と同じ灰色だと 13 個目の月に見える。カード見出しのアイコンと同じ
+                        // ブランド色にして、月の並びではなく印だと分かるようにする。
                         <span
-                          className={`absolute left-0 top-0 whitespace-nowrap leading-[0.6875rem] sm:leading-[0.8125rem] ${LABEL_TEXT}`}
+                          className={`${MONTH_ROW_TEXT} right-0 ${LABEL_SIZE} text-brand-600 dark:text-brand-300`}
                         >
-                          {m}
+                          今週
                         </span>
                       )}
                     </div>
@@ -176,7 +184,6 @@ export function CompletionHeatmap({ data }: Props) {
                     {week.map((day) =>
                       day.future ? (
                         // 今週の明日以降。場所だけ空けて、まだ来ていない日を「0 件」に見せない。
-                        // 枠線も付けない（付けると 0 件のマスと同じ見え方になる）。
                         <div key={day.key} aria-hidden className={CELL} />
                       ) : (
                         <div
@@ -187,7 +194,7 @@ export function CompletionHeatmap({ data }: Props) {
                             ? { role: 'img', 'aria-label': `${day.label} ${day.count}件` }
                             : { 'aria-hidden': true })}
                           title={`${day.label} ${day.count}件`}
-                          className={`${CELL} ${RING} ${LEVEL_CLASSES[level(day.count)]}`}
+                          className={`${CELL} ${LEVEL_CLASSES[level(day.count)]}`}
                         />
                       ),
                     )}
@@ -201,15 +208,20 @@ export function CompletionHeatmap({ data }: Props) {
               sm 未満は flex-col-reverse なので上から「多い」→ 濃い順 →「少ない」、
               sm 以上は flex-row でそのまま左から「少ない」→ 薄い順 →「多い」になる。
               二重に書かないので、スクリーンリーダーが同じ文言を 2 回読むこともない。
-              横スクロール領域の外に置いてあるので、グリッドをスクロールしても凡例は動かない。 */}
-          <div className="flex shrink-0 flex-col-reverse items-center gap-1 text-[0.625rem] text-slate-500 sm:mt-2 sm:flex-row sm:justify-end">
+              横スクロール領域の外に置いてあるので、グリッドをスクロールしても凡例は動かない。
+              sm 未満は flex-1 で余白ぶんの幅を丸ごと受け取り、items-center で中身をその中央に
+              置く（グリッドを伸ばして右端へ押し出すと、余白の端に寄って見える）。グリッドが
+              溢れる幅では basis 0 のぶん縮小の割り当てがゼロになるので、凡例は潰れない。
+              スウォッチはセルと同じ寸法（CELL）にする。凡例だけ小さいと、実物の濃さを
+              見比べる用途に足りない。 */}
+          {/* mt は月ラベル行の高さ（h-[0.6875rem] + mb-0.5 = 13px）。items-center は
+              マージン込みで中央に置くので、これで下へ 6.5px＝月ラベル行の半分ぶん動き、
+              凡例の中心がラベル行を含む全体ではなくマス目の中心に揃う。
+              sm 以上は sm:mt-2 が勝ち、グリッド直下の余白として全量が効く。 */}
+          <div className="mt-[0.8125rem] flex flex-1 flex-col-reverse items-center gap-1 text-[0.625rem] text-slate-500 sm:mt-2 sm:flex-row sm:justify-end">
             <span>少ない</span>
             {LEVEL_CLASSES.map((cls, i) => (
-              <span
-                key={i}
-                aria-hidden
-                className={`h-[0.75rem] w-[0.75rem] rounded-[0.125rem] sm:h-[0.8125rem] sm:w-[0.8125rem] ${RING} ${cls}`}
-              />
+              <span key={i} aria-hidden className={`${CELL} ${cls}`} />
             ))}
             <span>多い</span>
           </div>
