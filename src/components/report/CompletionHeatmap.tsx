@@ -8,13 +8,20 @@ interface Props {
 // 濃淡は 5 段階・しきい値は固定。ユーザーの平均から相対で決めると、今日の完了数が増えた
 // だけで過去のセルの色が一斉に変わる（「過去は動かない」というこの画面の前提が崩れる）。
 // クラスは動的に組み立てず配列にリテラルで置く（Tailwind の purge は文字列連結を追えない）。
+// level 0 は slate-100 だとライトの地色（slate-50）とのコントラストが 1.05:1 しかなく、
+// 升目が消える。slate-200 まで濃くして 1.18:1 にする（ダークは 1.38:1 で足りている）。
 const LEVEL_CLASSES = [
-  'bg-slate-100 dark:bg-slate-800',
+  'bg-slate-200 dark:bg-slate-800',
   'bg-brand-200 dark:bg-brand-900',
   'bg-brand-400 dark:bg-brand-700',
   'bg-brand-600 dark:bg-brand-500',
   'bg-brand-700 dark:bg-brand-300',
 ] as const;
+
+// 全セルに内側 1px。level 0 を濃くするだけでは 0 が続く区間で升目の境界が消えるため、
+// 縁を締めて「マス目である」ことを保つ。濃いセルでも浮かないよう地色ではなく低アルファの
+// インクを重ねる。未到来セルには付けない（場所を空けているだけで、マスではない）。
+const RING = 'ring-1 ring-inset ring-slate-900/10 dark:ring-slate-200/[0.15]';
 
 function level(count: number): number {
   if (count === 0) return 0;
@@ -30,10 +37,22 @@ const WEEKDAYS = ['月', '', '水', '', '金', '', '日'] as const;
 
 // セルは rem。文字サイズ設定（15/16/18/20px）に比例して拡大し、溢れたぶんは横スクロールで受ける
 // （文字サイズは「見やすくする」ための設定なので、ここだけ据え置くと設定の意図に反する）。
-const CELL = 'h-[0.875rem] w-[0.875rem] rounded-[0.1875rem]';
+// モバイルは 1rem。凡例を右へ縦置きしたうえで 375px 端末（カード内側 309px）に収まる上限で、
+// これ以上広げると 360px 端末で横スクロールに落ちて「余白を埋める」目的が果たせない。
+// sm 以上はカード内側が 574〜704px あるので 1.125rem まで上げる。
+const CELL =
+  'h-[1rem] w-[1rem] rounded-[0.1875rem] ' +
+  'sm:h-[1.125rem] sm:w-[1.125rem] sm:rounded-[0.25rem]';
+
+// gap はセル幅と連動する。月ラベル行・曜日ラベル列・週の列・列を並べる flex の 4 か所すべてで
+// 同じ値を使うこと。1 か所でも取り残すと月ラベルと週の列が横にずれる。
+const GAP = 'gap-[0.1875rem] sm:gap-[0.25rem]';
 
 // 曜日ラベル列と月ラベル行の左端スペーサで共有する。片方だけ変えると週の列が 1 つ分ずれる。
-const LABEL_COL = 'w-[1.125rem] shrink-0 pr-1 text-right';
+const LABEL_COL = 'w-[1.125rem] shrink-0 pr-1 text-right sm:w-[1.375rem]';
+
+// 曜日・月ラベルの文字。セルが sm で大きくなるぶん、文字も 1 段上げないと相対的に沈む。
+const LABEL_TEXT = 'text-[0.5625rem] text-slate-400 dark:text-slate-500 sm:text-[0.625rem]';
 
 /**
  * 前週と月が変わる週にだけ月名を返す。先頭週は月の途中から始まるので出さない
@@ -100,17 +119,25 @@ export function CompletionHeatmap({ data }: Props) {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
-        {/* 左: ヒートマップ本体と凡例。sm 以上では内容幅に固定する（凡例の右端をグリッドの
-            右端に揃えるため。ここで伸ばすと横スクロールも効かなくなる → P-18）。 */}
-        <div className="sm:shrink-0">
+        {/* 左: ヒートマップ本体と凡例。
+            sm 未満はグリッドと凡例を横並びにする。グリッドは 12 週ぶんの固定幅しかなく、
+            そのままだとカード右端に 80px 前後の死に余白が残るため、そこへ凡例を縦置きする。
+            sm 以上は block に戻して従来どおりの縦積み（グリッド → その下に横並びの凡例）にし、
+            内容幅へ固定する（凡例の右端をグリッドの右端に揃えるため。ここで伸ばすと
+            横スクロールも効かなくなる → P-18）。 */}
+        <div className="flex items-center gap-2 sm:block sm:shrink-0">
           {/* overflow-hidden ではなく auto。溢れた列はスクロールで見せる（P-17 の切り取り事故を避ける）。
-              overscroll-x-contain は iOS の「スワイプで戻る」と取り合わないため。 */}
-          <div className="overflow-x-auto overscroll-x-contain">
+              overscroll-x-contain は iOS の「スワイプで戻る」と取り合わないため。
+              min-w-0 は必須（P-18）。flex アイテムの既定 min-width: auto は内容幅を下限にするので、
+              付け忘れると横スクロールが効かずカードごと横に伸びる。
+              flex-1 で残り幅を取り、凡例をカード右端まで押し出す。sm 以上は親が block なので
+              min-w-0 / flex-1 とも効かなくなり、従来どおり内容幅のブロックに戻る。 */}
+          <div className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
             <div className="w-max">
-              {/* 月ラベル行。左右どちらが今週かをこの行だけで示す。ラベル（約 18px）はセル幅
-                  （14px）より広いが、月の変わり目は最短でも 4 週離れるので、absolute で右へ
-                  はみ出させても隣のラベルと衝突しない。列幅も崩れない。 */}
-              <div className="flex gap-[0.1875rem] mb-0.5">
+              {/* 月ラベル行。左右どちらが今週かをこの行だけで示す。ラベルはセル幅より広いが、
+                  月の変わり目は最短でも 4 週離れるので、absolute で右へはみ出させても
+                  隣のラベルと衝突しない。列幅も崩れない。 */}
+              <div className={`flex ${GAP} mb-0.5`}>
                 <div aria-hidden className={LABEL_COL} />
                 {data.weeks.map((week, i) => {
                   const m = monthLabel(data.weeks, i);
@@ -118,10 +145,12 @@ export function CompletionHeatmap({ data }: Props) {
                     <div
                       key={week[0].key}
                       aria-hidden
-                      className="relative h-[0.6875rem] w-[0.875rem]"
+                      className="relative h-[0.6875rem] w-[1rem] sm:h-[0.8125rem] sm:w-[1.125rem]"
                     >
                       {m && (
-                        <span className="absolute left-0 top-0 whitespace-nowrap text-[0.5625rem] leading-[0.6875rem] text-slate-400 dark:text-slate-500">
+                        <span
+                          className={`absolute left-0 top-0 whitespace-nowrap leading-[0.6875rem] sm:leading-[0.8125rem] ${LABEL_TEXT}`}
+                        >
                           {m}
                         </span>
                       )}
@@ -130,23 +159,24 @@ export function CompletionHeatmap({ data }: Props) {
                 })}
               </div>
 
-              <div className="flex gap-[0.1875rem]">
-                <div className={`grid grid-rows-7 gap-[0.1875rem] ${LABEL_COL}`}>
+              <div className={`flex ${GAP}`}>
+                <div className={`grid grid-rows-7 ${GAP} ${LABEL_COL}`}>
                   {WEEKDAYS.map((w, i) => (
                     <div
                       key={i}
                       aria-hidden
-                      className="h-[0.875rem] text-[0.5625rem] leading-[0.875rem] text-slate-400 dark:text-slate-500"
+                      className={`h-[1rem] leading-[1rem] sm:h-[1.125rem] sm:leading-[1.125rem] ${LABEL_TEXT}`}
                     >
                       {w}
                     </div>
                   ))}
                 </div>
                 {data.weeks.map((week) => (
-                  <div key={week[0].key} className="grid grid-rows-7 gap-[0.1875rem]">
+                  <div key={week[0].key} className={`grid grid-rows-7 ${GAP}`}>
                     {week.map((day) =>
                       day.future ? (
                         // 今週の明日以降。場所だけ空けて、まだ来ていない日を「0 件」に見せない。
+                        // 枠線も付けない（付けると 0 件のマスと同じ見え方になる）。
                         <div key={day.key} aria-hidden className={CELL} />
                       ) : (
                         <div
@@ -157,7 +187,7 @@ export function CompletionHeatmap({ data }: Props) {
                             ? { role: 'img', 'aria-label': `${day.label} ${day.count}件` }
                             : { 'aria-hidden': true })}
                           title={`${day.label} ${day.count}件`}
-                          className={`${CELL} ${LEVEL_CLASSES[level(day.count)]}`}
+                          className={`${CELL} ${RING} ${LEVEL_CLASSES[level(day.count)]}`}
                         />
                       ),
                     )}
@@ -167,13 +197,18 @@ export function CompletionHeatmap({ data }: Props) {
             </div>
           </div>
 
-          <div className="mt-2 flex items-center justify-end gap-1 text-[0.625rem] text-slate-500">
+          {/* 凡例。DOM は「少ない → スウォッチ 5 個 → 多い」の 1 セットだけ持ち、向きだけ変える。
+              sm 未満は flex-col-reverse なので上から「多い」→ 濃い順 →「少ない」、
+              sm 以上は flex-row でそのまま左から「少ない」→ 薄い順 →「多い」になる。
+              二重に書かないので、スクリーンリーダーが同じ文言を 2 回読むこともない。
+              横スクロール領域の外に置いてあるので、グリッドをスクロールしても凡例は動かない。 */}
+          <div className="flex shrink-0 flex-col-reverse items-center gap-1 text-[0.625rem] text-slate-500 sm:mt-2 sm:flex-row sm:justify-end">
             <span>少ない</span>
             {LEVEL_CLASSES.map((cls, i) => (
               <span
                 key={i}
                 aria-hidden
-                className={`h-[0.625rem] w-[0.625rem] rounded-[0.125rem] ${cls}`}
+                className={`h-[0.75rem] w-[0.75rem] rounded-[0.125rem] sm:h-[0.8125rem] sm:w-[0.8125rem] ${RING} ${cls}`}
               />
             ))}
             <span>多い</span>
