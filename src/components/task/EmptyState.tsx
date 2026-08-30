@@ -21,7 +21,7 @@ export function EmptyState() {
         </g>
       </svg>
       <p className="mt-4 text-sm text-slate-400 dark:text-slate-500">
-        ここから育てていきましょう
+        タスクを追加しましょう
       </p>
     </div>
   );
