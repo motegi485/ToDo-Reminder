@@ -121,10 +121,11 @@ async function pull(syncCode: string): Promise<void> {
   storage.setLastSyncedAt(cursor);
 }
 
-async function push(syncCode: string, since: number): Promise<void> {
+/** 送れなかった（別コード所有の）件数を返す。呼び出し側がステータスへ載せる。 */
+async function push(syncCode: string, since: number): Promise<number> {
   const allTasks = await db.tasks.where('sync_code').equals(syncCode).toArray();
   const changed = allTasks.filter((t) => t.updated_at > since);
-  if (changed.length === 0) return;
+  if (changed.length === 0) return 0;
 
   const { skipped } = await pushInChunks(syncCode, changed);
   // 通常同期での skipped はテナント分離チェックに引っかかった異常系
@@ -133,11 +134,74 @@ async function push(syncCode: string, since: number): Promise<void> {
   if (skipped > 0) {
     showToast('一部のタスクが同期できませんでした。他端末との同期をやり直してください', 'warn');
   }
+  return skipped;
 }
 
 // 「同期コードが未登録（403）」の案内は繰り返しても直しようがないため 1 回だけ出す。
 // コードを切り替えたら再び出せるようにリセットする。
 let notAllowedNotified = false;
+
+/* ------------------------------------------------------------------ *
+ * 同期ステータス（購読可能）
+ *
+ * トーストは 3 秒で消え、403 に至っては 1 セッションに 1 回しか出ない。
+ * 起動直後のその 1 回を見逃すと「同期されている」と信じたまま何日でも使えてしまう。
+ * 画面に常設できる状態をここに持ち、設定画面が購読する。
+ * ------------------------------------------------------------------ */
+
+export type SyncState = 'idle' | 'syncing' | 'ok' | 'error';
+
+export type SyncErrorKind =
+  /** 同期コードがサーバーの許可リストに無い（403）。ユーザー操作でしか直らない。 */
+  | 'not_allowed'
+  /** 送信だけ失敗（受信は成功）。 */
+  | 'push_failed'
+  /** 受信だけ失敗（送信は成功）。 */
+  | 'pull_failed'
+  /** 送受信とも失敗。 */
+  | 'both_failed'
+  /** オフラインなので実行していない。 */
+  | 'offline'
+  /** VITE_API_URL 未設定。このビルドは同期機能を持たない。 */
+  | 'not_configured'
+  /** 同期コードが未生成（通常は起動時に作られる）。 */
+  | 'no_code';
+
+export interface SyncStatus {
+  state: SyncState;
+  /** 最後に push と pull の両方が成功した時刻(ms)。未達なら null。 */
+  lastOkAt: number | null;
+  errorKind: SyncErrorKind | null;
+  /**
+   * 直近の push で「別の同期コードが所有していて書けなかった」件数。
+   * 恒久的に取りこぼし続ける異常系なので、0 になるまで表示に残す。
+   */
+  skipped: number;
+}
+
+let status: SyncStatus = {
+  state: 'idle',
+  lastOkAt: storage.getLastSyncOkAt(),
+  errorKind: null,
+  skipped: 0,
+};
+
+const listeners = new Set<() => void>();
+
+/** `useSyncExternalStore` の getSnapshot 用。参照は変化したときだけ入れ替える。 */
+export function getSyncStatus(): SyncStatus {
+  return status;
+}
+
+export function subscribeSyncStatus(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function setStatus(patch: Partial<SyncStatus>): void {
+  status = { ...status, ...patch };
+  for (const listener of listeners) listener();
+}
 
 type StepResult = { ok: true } | { ok: false; error: unknown };
 
@@ -157,10 +221,20 @@ function isNotAllowed(result: StepResult): boolean {
 }
 
 export async function runSync(): Promise<void> {
-  if (!navigator.onLine) return;
-  if (!import.meta.env.VITE_API_URL) return;
+  if (!navigator.onLine) {
+    setStatus({ state: 'error', errorKind: 'offline' });
+    return;
+  }
+  if (!import.meta.env.VITE_API_URL) {
+    setStatus({ state: 'error', errorKind: 'not_configured' });
+    return;
+  }
   const syncCode = storage.getSyncCode();
-  if (!syncCode) return;
+  if (!syncCode) {
+    setStatus({ state: 'error', errorKind: 'no_code' });
+    return;
+  }
+  setStatus({ state: 'syncing' });
 
   // push カーソル(lastPushedAt)はクライアント時計、pull カーソル(lastSyncedAt)は
   // サーバー採番の server_seq。両者は別物として管理する（時計混在を避ける）。
@@ -171,10 +245,11 @@ export async function runSync(): Promise<void> {
   // など）に陥ると pull まで到達せず、その端末が他端末の変更を一切受け取れない
   // 片方向の同期停止に陥っていた。しかもユーザーには 5 分ごとのトーストしか見えず、
   // 原因も回避策も分からない状態だった。
+  let pushSkipped = 0;
   const pushResult = await step(async () => {
     const pushSince = storage.getLastPushedAt();
     const pushNow = Date.now();
-    await push(syncCode, pushSince);
+    pushSkipped = await push(syncCode, pushSince);
     // 全チャンク成功したときだけカーソルを進める（途中失敗時は次回に全量再送）。
     //
     // 1ms 引くのは、push 対象のスナップショット（toArray）を取った後・ここに来る前に
@@ -191,7 +266,12 @@ export async function runSync(): Promise<void> {
     ? pushResult
     : await step(() => pull(syncCode));
 
-  if (pushResult.ok && pullResult.ok) return;
+  if (pushResult.ok && pullResult.ok) {
+    const now = Date.now();
+    storage.setLastSyncOkAt(now);
+    setStatus({ state: 'ok', lastOkAt: now, errorKind: null, skipped: pushSkipped });
+    return;
+  }
 
   console.warn('Sync failed:', {
     push: pushResult.ok ? 'ok' : pushResult.error,
@@ -202,6 +282,8 @@ export async function runSync(): Promise<void> {
   // 端末が自分で生成した未登録コードを持っているため必ずこうなる。5 分ごとに
   // 「同期に失敗しました」を出しても直しようがないので、案内は 1 度だけにする。
   if (isNotAllowed(pushResult) || isNotAllowed(pullResult)) {
+    // トーストは 1 回だけだが、ステータスは解消するまで設定画面に残る。
+    setStatus({ state: 'error', errorKind: 'not_allowed', skipped: pushSkipped });
     if (!notAllowedNotified) {
       notAllowedNotified = true;
       showToast('この端末の同期コードは未登録です。設定から既存のコードを入力してください', 'warn');
@@ -212,10 +294,13 @@ export async function runSync(): Promise<void> {
   // 片方だけ失敗したときは、どちら側が止まっているのかを伝える。
   // 「送信できていない」と「受信できていない」では次にすべきことが違うため。
   if (!pushResult.ok && pullResult.ok) {
+    setStatus({ state: 'error', errorKind: 'push_failed', skipped: pushSkipped });
     showToast('変更をサーバーへ送れませんでした（受信は成功）', 'warn');
   } else if (pushResult.ok && !pullResult.ok) {
+    setStatus({ state: 'error', errorKind: 'pull_failed', skipped: pushSkipped });
     showToast('サーバーから最新を取得できませんでした（送信は成功）', 'warn');
   } else {
+    setStatus({ state: 'error', errorKind: 'both_failed', skipped: pushSkipped });
     showToast('同期に失敗しました', 'warn');
   }
 }
@@ -309,7 +394,13 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
 
   storage.setLastSyncedAt(cursor);
   // 取り込んだ行は既にサーバー上にある。以後の push は「切替後の編集」だけが対象。
-  storage.setLastPushedAt(Date.now());
+  const now = Date.now();
+  storage.setLastPushedAt(now);
+
+  // ここまで来た時点で全量 push と全量 pull が成功している。前のコードで出ていた
+  // 「未登録（403）」などのエラー表示を引きずらせない。
+  storage.setLastSyncOkAt(now);
+  setStatus({ state: 'ok', lastOkAt: now, errorKind: null, skipped: 0 });
 
   return { visible: merged.length };
 }
