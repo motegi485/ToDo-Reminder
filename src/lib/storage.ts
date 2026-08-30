@@ -9,6 +9,7 @@ type StorageKey =
   | 'todo_project_states'
   | 'todo_last_synced_at'
   | 'todo_last_pushed_at'
+  | 'todo_last_sync_ok_at'
   | 'todo_cursor_schema'
   | 'todo_notified_reminders'
   | 'todo_push_disabled'
@@ -170,6 +171,22 @@ export const storage = {
   },
   setLastPushedAt(ms: number): boolean {
     return write('todo_last_pushed_at', String(ms));
+  },
+
+  // 最後に push と pull の**両方**が成功した時刻（ms）。表示専用。
+  //
+  // **カーソル 2 本（lastPushedAt / lastSyncedAt）に相乗りさせないこと。**
+  // あちらは push=クライアント時計 / pull=サーバー採番の server_seq と意味が違い、
+  // 混ぜると I-2 違反（同期が特定の行だけ永久に届かなくなる）になる。
+  // これは「いつ成功したか」を人に見せるためだけの値で、同期の判断には一切使わない。
+  getLastSyncOkAt(): number | null {
+    const v = read('todo_last_sync_ok_at');
+    if (v === null) return null;
+    const n = Number(v);
+    return Number.isSafeInteger(n) && n > 0 ? n : null;
+  },
+  setLastSyncOkAt(ms: number): void {
+    write('todo_last_sync_ok_at', String(ms));
   },
 
   // ローカル通知（起動中フォールバック）で発火済みのリマインダーを記録し、
