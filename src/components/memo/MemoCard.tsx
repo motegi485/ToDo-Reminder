@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Copy, Eye, EyeOff, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { MASKED_PLACEHOLDER, memoTypeDef } from './memoTypes';
+import { stopCardDrag } from '@/components/task/stopCardDrag';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { showToast } from '@/components/ui/Toast';
 import { deleteMemo } from '@/lib/memoRepo';
@@ -174,6 +175,7 @@ export function MemoCard({
         type="button"
         tabIndex={swipe.opened ? 0 : -1}
         aria-hidden={!swipe.opened}
+        onTouchStart={stopCardDrag}
         onClick={handleSwipeDelete}
         className={[
           'absolute inset-0 flex items-stretch justify-end overflow-hidden rounded-[14px]',
@@ -200,6 +202,7 @@ export function MemoCard({
           <button
             type="button"
             aria-label="操作を閉じる"
+            onTouchStart={stopCardDrag}
             onClick={() => swipe.close()}
             className="absolute inset-0 z-10 rounded-[14px]"
           />
@@ -210,6 +213,7 @@ export function MemoCard({
         <button
           type="button"
           aria-label={`${memo.title} の値をコピー`}
+          onTouchStart={stopCardDrag}
           onClick={handleCopy}
           className={[
             'relative mt-0.5 h-6 w-6 shrink-0 flex items-center justify-center',
@@ -243,6 +247,7 @@ export function MemoCard({
           <button
             type="button"
             aria-label={revealed ? '値を隠す' : '値を表示'}
+            onTouchStart={stopCardDrag}
             aria-pressed={revealed}
             onClick={(e) => {
               e.stopPropagation();
@@ -263,6 +268,7 @@ export function MemoCard({
             <button
               type="button"
               aria-label="メニュー"
+              onTouchStart={stopCardDrag}
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
