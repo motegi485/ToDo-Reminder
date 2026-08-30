@@ -3,6 +3,7 @@ import { setQuantitativeValue } from '@/lib/taskRepo';
 import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
 import { accentForTask } from './accentColor';
+import { stopCardDrag } from './stopCardDrag';
 import type { Task } from '@/types';
 
 interface Props {
@@ -67,6 +68,7 @@ export function QuantitativeProgress({ task }: Props) {
           <button
             type="button"
             className="tabular-nums hover:text-slate-900 dark:hover:text-white"
+            onTouchStart={stopCardDrag}
             onClick={(e) => { e.stopPropagation(); setEditing(true); }}
           >
             {current} / {target}
