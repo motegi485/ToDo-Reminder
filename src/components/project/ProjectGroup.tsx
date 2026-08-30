@@ -19,6 +19,8 @@ import {
 import { TaskCard } from '@/components/task/TaskCard';
 import { SortableTaskCard } from '@/components/task/SortableTaskCard';
 import { SortableMemoCard } from '@/components/memo/SortableMemoCard';
+import { CardErrorFallback } from '@/components/task/CardErrorFallback';
+import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { RenameProjectDialog } from './RenameProjectDialog';
 import { sortTasksInGroup } from '@/lib/sort';
 import { reorderTask } from '@/lib/taskRepo';
@@ -246,17 +248,33 @@ export function ProjectGroup({ name, tasks, onEdit, isFirstGroup, variant = 'acc
             <SortableContext items={displayActiveIds} strategy={verticalListSortingStrategy}>
               {/* タスクとメモは同じ列に混在する。種別はカードの見た目
                   （丸チェック / コピーアイコン）で区別し、並べ替えは両方に効く。 */}
-              {displayActive.map((t) =>
-                isMemo(t) ? (
-                  <SortableMemoCard key={t.id} memo={t} onEdit={onEdit} />
-                ) : (
-                  <SortableTaskCard key={t.id} task={t} onEdit={onEdit} />
-                ),
-              )}
+              {displayActive.map((t) => (
+                // カード 1 枚の例外で一覧ごと落とさない。境界は通常時 children を
+                // そのまま返すので、listRef 直下は data-task-id を持つカードのまま（FLIP 無傷）。
+                <ErrorBoundary
+                  key={t.id}
+                  label={`card:${t.id}`}
+                  resetKey={String(t.updated_at)}
+                  fallback={(_e, reset) => <CardErrorFallback task={t} onRetry={reset} />}
+                >
+                  {isMemo(t) ? (
+                    <SortableMemoCard memo={t} onEdit={onEdit} />
+                  ) : (
+                    <SortableTaskCard task={t} onEdit={onEdit} />
+                  )}
+                </ErrorBoundary>
+              ))}
             </SortableContext>
           </DndContext>
           {completedTasks.map((t) => (
-            <TaskCard key={t.id} task={t} onEdit={onEdit} />
+            <ErrorBoundary
+              key={t.id}
+              label={`card:${t.id}`}
+              resetKey={String(t.updated_at)}
+              fallback={(_e, reset) => <CardErrorFallback task={t} onRetry={reset} />}
+            >
+              <TaskCard task={t} onEdit={onEdit} />
+            </ErrorBoundary>
           ))}
         </div>
       )}
