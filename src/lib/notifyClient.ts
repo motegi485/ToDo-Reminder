@@ -2,6 +2,51 @@ import { storage } from '@/lib/storage';
 import { api } from '@/lib/api';
 import { showToast } from '@/components/ui/Toast';
 
+/**
+ * この端末で実際に通知がどう届くか。
+ *
+ * `Notification.permission` は「ブラウザが許可しているか」しか表さない。サーバーに購読行が
+ * 無ければ Push は 1 通も届かないが、許可状態は `granted` のままなので、設定画面が
+ * 「許可済み」とだけ出していると**通知が来ないのに来ると信じてしまう**。
+ *
+ * **判定条件は `offlineNotify.ts` の分岐と同一に保つこと。** あちらが「ローカル通知を出す」
+ * ケースが、ここでの `local_only` にちょうど対応する。ずらすと表示と実際の配信経路が
+ * 食い違い、いちばん直したかった嘘がそのまま残る。
+ */
+export type NotificationDelivery =
+  /** サーバー Push が届く（アプリを閉じていても通知される）。 */
+  | { kind: 'push' }
+  /** アプリを開いている間だけローカル通知で出る。 */
+  | { kind: 'local_only'; reason: 'unconfirmed' | 'no_vapid' | 'not_subscribed' }
+  /** どの経路でも届かない。 */
+  | { kind: 'none'; reason: 'no_sw' | 'no_registration' };
+
+export async function getNotificationDelivery(): Promise<NotificationDelivery> {
+  // offlineNotify も serviceWorker と registration が無ければ何もできない。
+  if (!('serviceWorker' in navigator)) return { kind: 'none', reason: 'no_sw' };
+  const registration = await navigator.serviceWorker.getRegistration();
+  if (!registration) return { kind: 'none', reason: 'no_registration' };
+
+  let subscription: PushSubscription | null = null;
+  try {
+    subscription = await registration.pushManager.getSubscription();
+  } catch {
+    /* pushManager が使えない環境では購読なしとして扱う（offlineNotify と同じ） */
+  }
+
+  if (subscription) {
+    // 「ブラウザ側の購読はあるが、サーバーへの登録が確認できていない」endpoint は
+    // Push が届かない。offlineNotify はこの場合にローカル通知を動かす。
+    return storage.getPushUnconfirmedEndpoint() !== subscription.endpoint
+      ? { kind: 'push' }
+      : { kind: 'local_only', reason: 'unconfirmed' };
+  }
+
+  return import.meta.env.VITE_VAPID_PUBLIC_KEY
+    ? { kind: 'local_only', reason: 'not_subscribed' }
+    : { kind: 'local_only', reason: 'no_vapid' };
+}
+
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
   if (typeof Notification === 'undefined') {
     showToast('このブラウザは通知をサポートしていません', 'warn');

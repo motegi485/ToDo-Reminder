@@ -4,14 +4,39 @@ import { isIOS, isAndroid, isStandalone } from '@/lib/mobileDetect';
 import { storage } from '@/lib/storage';
 import { Share, Plus, MoreVertical, Download } from 'lucide-react';
 
-export function MobilePwaGuide() {
-  const [open, setOpen] = useState(false);
+interface Props {
+  /**
+   * 渡すと「制御コンポーネント」になり、起動時の自動表示は行わない。
+   * 通知が必要になった場面（設定画面・リマインダー欄）から明示的に開くための口。
+   */
+  open?: boolean;
+  onClose?: () => void;
+}
+
+/**
+ * ホーム画面追加（PWA インストール）の案内。
+ *
+ * `open` を渡さない場合は従来どおり、起動時に 1 回だけ自分で開く（App.tsx に常設）。
+ * `open` を渡した場合は呼び出し側が開閉を持つ。**制御時は「今後表示しない」を出さない**
+ * — ユーザーが自分で開いたものに対して恒久的な抑止を提案するのは筋が違ううえ、
+ * それを押されると通知が本当に必要になったときの案内まで失われる。
+ */
+export function MobilePwaGuide({ open: openProp, onClose }: Props = {}) {
+  const controlled = openProp !== undefined;
+  const [autoOpen, setAutoOpen] = useState(false);
 
   useEffect(() => {
+    if (controlled) return;
     if ((!isIOS() && !isAndroid()) || isStandalone()) return;
     if (storage.getIosPwaDismissed()) return;
-    setOpen(true);
-  }, []);
+    setAutoOpen(true);
+  }, [controlled]);
+
+  const open = controlled ? openProp : autoOpen;
+  const close = () => {
+    if (controlled) onClose?.();
+    else setAutoOpen(false);
+  };
 
   const steps = isIOS() ? (
     <>
@@ -59,7 +84,7 @@ export function MobilePwaGuide() {
   const android = isAndroid();
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} ariaLabel={android ? 'アプリをインストール' : 'ホーム画面に追加'}>
+    <Modal open={open} onClose={close} ariaLabel={android ? 'アプリをインストール' : 'ホーム画面に追加'}>
       <div className="p-5 space-y-4">
         <h2 className="text-lg font-semibold">
           {android ? 'アプリをインストールして使う' : 'ホーム画面に追加して使う'}
@@ -82,19 +107,22 @@ export function MobilePwaGuide() {
           </p>
         )}
         <div className="flex justify-end gap-2 pt-2">
+          {/* 制御時（ユーザーが自分で開いた）は恒久的な抑止を提案しない。 */}
+          {!controlled && (
+            <button
+              type="button"
+              onClick={() => {
+                storage.setIosPwaDismissed(true);
+                setAutoOpen(false);
+              }}
+              className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white"
+            >
+              今後表示しない
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => {
-              storage.setIosPwaDismissed(true);
-              setOpen(false);
-            }}
-            className="px-3 py-1.5 rounded-lg text-sm text-slate-500 hover:text-slate-900 dark:hover:text-white"
-          >
-            今後表示しない
-          </button>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
+            onClick={close}
             className="px-3 py-1.5 rounded-lg text-sm bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
           >
             閉じる
