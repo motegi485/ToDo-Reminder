@@ -16,6 +16,7 @@ import {
 import { accentForTask } from './accentColor';
 import { QuantitativeProgress } from './QuantitativeProgress';
 import { SubtaskList } from './SubtaskList';
+import { stopCardDrag } from './stopCardDrag';
 import { normalizeSubtasks } from '@/lib/subtasks';
 import { DueDateSheet } from './DueDateSheet';
 import { SnoozeSheet } from './SnoozeSheet';
@@ -424,6 +425,7 @@ export function TaskCard({
             type="button"
             tabIndex={swipe.opened ? 0 : -1}
             aria-hidden={!swipe.opened}
+            onTouchStart={stopCardDrag}
             onClick={handleSwipeSnooze}
             className="flex flex-1 justify-end bg-sky-700 text-white dark:bg-sky-800"
           >
@@ -437,6 +439,7 @@ export function TaskCard({
           type="button"
           tabIndex={swipe.opened ? 0 : -1}
           aria-hidden={!swipe.opened}
+          onTouchStart={stopCardDrag}
           onClick={handleSwipeDelete}
           className={[
             'flex justify-end bg-red-600 text-white dark:bg-red-700',
@@ -474,6 +477,7 @@ export function TaskCard({
           <button
             type="button"
             aria-label="操作を閉じる"
+            onTouchStart={stopCardDrag}
             onClick={() => swipe.close()}
             className="absolute inset-0 z-10 rounded-[14px]"
           />
@@ -489,6 +493,7 @@ export function TaskCard({
           <button
             type="button"
             aria-label={showChecked ? '未完了に戻す' : '完了にする'}
+            onTouchStart={stopCardDrag}
             onClick={handleCheck}
             onAnimationEnd={() => setAnimateCheck(false)}
             className={[
@@ -595,6 +600,7 @@ export function TaskCard({
             type="button"
             aria-expanded={expanded}
             aria-label={`サブタスク ${subtasks.length} 件中 ${doneCount} 件完了。${expanded ? '折りたたむ' : '展開する'}`}
+            onTouchStart={stopCardDrag}
             onClick={(e) => {
               e.stopPropagation();
               setExpanded((v) => !v);
@@ -637,6 +643,7 @@ export function TaskCard({
             <button
               type="button"
               aria-label="期限を変更"
+              onTouchStart={stopCardDrag}
               onClick={(e) => {
                 e.stopPropagation();
                 setDueSheetOpen(true);
@@ -661,6 +668,7 @@ export function TaskCard({
             <button
               type="button"
               aria-label="メニュー"
+              onTouchStart={stopCardDrag}
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);

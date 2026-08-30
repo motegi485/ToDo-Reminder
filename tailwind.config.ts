@@ -4,6 +4,15 @@ import { COLOR_SAFELIST } from './src/lib/taskColors';
 const config: Config = {
   darkMode: 'class',
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  future: {
+    // すべての `hover:` を `@media (hover: hover)` で包む。
+    // これが無いとタッチ端末では hover が「タップした瞬間に付き、次にどこかを触るまで残る」
+    // sticky hover になり、押した要素が「選択中」に見える。さらに iOS Safari は
+    // 「hover で内容が変わる要素は 1 タップ目を hover に使う」ため、hover で現れる
+    // コントロールがあると 1 タップ目の click が消える。
+    // マウスのある環境（タッチ対応 PC を含む）では従来どおり効く。
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       colors: {
