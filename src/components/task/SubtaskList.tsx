@@ -1,47 +1,42 @@
-import { useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { GripVertical, Plus, X } from 'lucide-react';
+import { useId, useRef, useState } from 'react';
+import { MoreVertical, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type Modifier,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { addSubtask, removeSubtask, reorderSubtasks, toggleSubtask } from '@/lib/taskRepo';
+  addSubtask,
+  removeSubtask,
+  renameSubtask,
+  restoreSubtask,
+  toggleSubtask,
+} from '@/lib/taskRepo';
+import { AnchoredMenu, AnchoredMenuItem } from '@/components/ui/AnchoredMenu';
 import { showToast } from '@/components/ui/Toast';
 import { haptic } from '@/hooks/useHaptic';
-import { prefersReducedMotion } from '@/lib/motion';
+import { stopCardDrag } from './stopCardDrag';
 import { CONSTANTS } from '@/lib/constants';
 import type { accentForTask } from './accentColor';
 import type { Subtask } from '@/types';
 
 type Accent = ReturnType<typeof accentForTask>;
 
+/** 削除の取り消しトーストを出しておく時間(ms)。タスク削除（TaskCard）と同値。 */
+const UNDO_TOAST_MS = 5000;
+
 /**
- * 横方向のドリフトを殺す。子の並べ替えは縦一列なので、横に動かせても行き先は変わらず
- * 「カードからはみ出して迷子になる」だけになる。@dnd-kit/modifiers を足さずに済むよう
- * ここで書く（modifiers は transform を受け取って返すだけの関数）。
+ * 丸とラベルの間隔(10px)＋丸の直径(22px)。インライン入力欄の左端をラベルに揃えるために使う。
+ * **丸の寸法を変えたらここも変えること**（ずれると入力欄だけ左右に動いて見える）。
  */
-const restrictToVerticalAxis: Modifier = ({ transform }) => ({ ...transform, x: 0 });
+const LABEL_INDENT = 'pl-8';
 
 interface Props {
   taskId: string;
   subtasks: Subtask[];
   /** 親タスクのアクセント色。子は独自の色を持たず、親の色を継承する。 */
   accent: Accent;
+  /**
+   * 親カードで展開されているか。**畳んでいる間は中のボタンを tab 順から外すために要る。**
+   * 折りたたみは `grid-template-rows` の 0fr で高さを 0 にしているだけなので、
+   * 見えていなくてもフォーカスは入ってしまう（スワイプパネルと同じ扱いで塞ぐ）。
+   */
+  expanded: boolean;
 }
 
 /**
@@ -51,45 +46,33 @@ interface Props {
  * 読め、誤タップで付けたチェックを戻す位置も分かる。連続でチェックしたときに
  * 行が飛んでタップ位置がずれる問題も起きない。
  *
- * ## 3 つのジェスチャとの調停
+ * ## 並べ替えは持たない
  *
- * カードの根には既に「@dnd-kit のカード並べ替え（長押し 200ms）」と
- * 「useSwipeAction の横スワイプ（native リスナ）」が載っている。子の並べ替えを足すと
- * 同じ指の動きを 3 者が取り合うため、**子のドラッグは専用ハンドルからのみ**開始し、
- * ハンドルでは次の 2 つを別々の方法で止める。
+ * 以前は専用のグリップハンドルから `@dnd-kit` で並べ替えられたが、カード面が既に
+ * 「縦スクロール / 横スワイプ / カードの長押しドラッグ」を取り合っており、そこへ 4 つ目の
+ * ジェスチャを重ねる価値が薄いため撤去した。並び順は配列順のままで、フォーム
+ * （`SubtaskEditor`）にも並べ替えは無い。
  *
- * | 相手 | 実装 | 理由 |
- * |---|---|---|
- * | 親カードの @dnd-kit | React の `stopPropagation` | 親の listeners も React props なので合成イベントの伝播を止めれば届かない |
- * | useSwipeAction | `data-swipe-ignore` 属性 | あちらは native リスナで、React より先に実行される。伝播を native で止めると今度は React まで届かず子のセンサーが起動しないため、印を見て降りてもらう |
+ * ## タップを親のドラッグに食われないようにする
+ *
+ * カードの根は `@dnd-kit` の長押しドラッグ（`delay: 200`）の起点でもあるため、
+ * 操作要素には `stopCardDrag` を付けて `touchstart` を親へ渡さない（理由は
+ * `stopCardDrag.ts` のコメント）。リスト全体には `data-swipe-ignore` を付け、
+ * チェックリストの上をなぞってカードごと完了・削除されるのも防ぐ。
  */
-export function SubtaskList({ taskId, subtasks, accent }: Props) {
+export function SubtaskList({ taskId, subtasks, accent, expanded }: Props) {
   // 楽観表示。DB への書き込みと Dexie の live query 反映までの間、チェックが遅れて
   // 見えるのを防ぐ（親カードのチェックが pending で先に見た目を変えるのと同じ流儀）。
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
-  // ドラッグ中の行。DragOverlay に何を描くかを決めるためだけに持つ。
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // インライン編集中の行。null なら編集していない。
+  const [editingId, setEditingId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // **親カードと違い、タッチでも長押しを要求しない。**
-  //
-  // 親カードは「縦スクロール / 横スワイプ / 並べ替え」を同じ面で取り合うため
-  // `{ delay: 200, tolerance: 5 }` で長押しを条件にしている。子は専用ハンドルからしか
-  // 掴めず、ハンドルは touch-action: none なのでスクロールと competing しない。
-  //
-  // ここに delay を入れてはいけない: @dnd-kit は **delay 経過前に tolerance を超えて
-  // 動くとドラッグを中止し、そのタッチでは再開しない**（AbstractPointerSensor.handleMove）。
-  // ハンドルを掴んですぐ動かすという自然な操作が、ことごとく中止される。
-  const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
   const atLimit = subtasks.length >= CONSTANTS.SUBTASK_MAX_COUNT;
-  const activeSubtask = activeId ? subtasks.find((s) => s.id === activeId) : undefined;
+  // 畳んでいる間はフォーカスを入れさせない（見えない要素に Tab で入るのを防ぐ）。
+  const tabIndex = expanded ? 0 : -1;
 
   const handleToggle = async (sub: Subtask) => {
     if (pending.has(sub.id)) return; // 二度押しで反転が打ち消し合うのを防ぐ
@@ -108,12 +91,33 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
     }
   };
 
-  const handleDragEnd = (e: DragEndEvent) => {
-    setActiveId(null);
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    void reorderSubtasks(taskId, active.id as string, over.id as string).catch(() =>
-      showToast('並べ替えを保存できませんでした', 'error'),
+  /** 削除は取り消しトーストで受ける（タスク削除と同じ流儀）。元の位置ごと戻す。 */
+  const handleRemove = async (sub: Subtask, index: number) => {
+    const saved = await removeSubtask(taskId, sub.id).catch(() => null);
+    if (!saved) {
+      showToast('削除に失敗しました', 'error');
+      return;
+    }
+    showToast('サブタスクを削除しました', 'info', {
+      durationMs: UNDO_TOAST_MS,
+      action: {
+        label: '取り消す',
+        onAction: () => {
+          void restoreSubtask(taskId, sub, index).catch(() =>
+            showToast('元に戻せませんでした', 'error'),
+          );
+        },
+      },
+    });
+  };
+
+  const commitEdit = async (sub: Subtask, title: string) => {
+    setEditingId(null);
+    const trimmed = title.trim();
+    // 空にして確定したときは削除ではなく破棄（元のタイトルに戻す）。
+    if (trimmed.length === 0 || trimmed === sub.title) return;
+    await renameSubtask(taskId, sub.id, trimmed).catch(() =>
+      showToast('保存に失敗しました', 'error'),
     );
   };
 
@@ -135,62 +139,33 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
   };
 
   return (
-    <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        modifiers={[restrictToVerticalAxis]}
-        onDragStart={(e) => setActiveId(e.active.id as string)}
-        onDragEnd={handleDragEnd}
-        onDragCancel={() => setActiveId(null)}
-      >
-        <SortableContext items={subtasks.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-          <ul className="space-y-0.5">
-            {subtasks.map((s) => (
-              <SubtaskRow
-                key={s.id}
-                subtask={s}
-                accent={accent}
-                checked={pending.has(s.id) ? !s.done : s.done}
-                onToggle={() => void handleToggle(s)}
-                onRemove={() =>
-                  void removeSubtask(taskId, s.id).catch(() =>
-                    showToast('削除に失敗しました', 'error'),
-                  )
-                }
-              />
-            ))}
-          </ul>
-        </SortableContext>
-
-        {/* **DragOverlay を body へ portal する。**
-            子リストは展開アニメーションのために overflow-hidden の内側にいるので、
-            行をその場で動かすと箱の外へ出た瞬間に切り取られ、さらにカード内の重なり順に
-            閉じ込められて他のカードの下へ潜り込む。オーバーレイを body 直下に出せば、
-            祖先のクリップにも重なり順にも縛られない。
-
-            modifiers は DndContext とは別に渡す必要がある。DndContext 側の指定は
-            draggable の transform に効き、実際に見えているオーバーレイには効かない。 */}
-        {createPortal(
-          <DragOverlay dropAnimation={null} modifiers={[restrictToVerticalAxis]}>
-            {activeSubtask && (
-              <ul className="pointer-events-none list-none">
-                <SubtaskRowView
-                  subtask={activeSubtask}
-                  accent={accent}
-                  checked={activeSubtask.done}
-                  dragging
-                />
-              </ul>
-            )}
-          </DragOverlay>,
-          document.body,
-        )}
-      </DndContext>
+    <div
+      // useSwipeAction は native リスナなので React の stopPropagation では降ろせない。
+      // 印を見て降りてもらう（stopCardDrag が受け持つのは @dnd-kit のほう）。
+      data-swipe-ignore
+      aria-hidden={!expanded}
+      className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800"
+    >
+      <ul className="space-y-0.5">
+        {subtasks.map((s, index) => (
+          <SubtaskRow
+            key={s.id}
+            subtask={s}
+            accent={accent}
+            checked={pending.has(s.id) ? !s.done : s.done}
+            editing={editingId === s.id}
+            tabIndex={tabIndex}
+            onToggle={() => void handleToggle(s)}
+            onStartEdit={() => setEditingId(s.id)}
+            onCommitEdit={(title) => void commitEdit(s, title)}
+            onRemove={() => void handleRemove(s, index)}
+          />
+        ))}
+      </ul>
 
       {/* インライン追加。フォームを開かずに思いついた手順を足せるようにする。 */}
       {adding ? (
-        <div className="mt-1 flex items-center gap-2 pl-[1.875rem]">
+        <div className={`mt-1 flex items-center gap-2 ${LABEL_INDENT}`}>
           <input
             ref={inputRef}
             autoFocus
@@ -199,6 +174,8 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
             maxLength={CONSTANTS.SUBTASK_TITLE_MAX_LENGTH}
             placeholder="サブタスクを入力"
             aria-label="サブタスクを追加"
+            tabIndex={tabIndex}
+            onTouchStart={stopCardDrag}
             onChange={(e) => setDraft(e.target.value)}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
@@ -212,21 +189,23 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
             }}
             // 入力欄の外を触ったら確定して閉じる（未確定の文字を捨てない）。
             onBlur={() => void commitDraft()}
-            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[0.875rem] dark:border-slate-600 dark:bg-slate-900"
+            className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[0.9375rem] dark:border-slate-600 dark:bg-slate-900"
           />
         </div>
       ) : (
         <button
           type="button"
           disabled={atLimit}
+          tabIndex={tabIndex}
+          onTouchStart={stopCardDrag}
           onClick={(e) => {
             e.stopPropagation();
             setDraft('');
             setAdding(true);
           }}
-          className="mt-1 flex items-center gap-1.5 rounded-md py-1.5 pl-[1.875rem] pr-2 text-[0.8125rem] text-slate-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:text-brand-400"
+          className={`mt-1 flex items-center gap-1.5 rounded-md py-1.5 pr-2 ${LABEL_INDENT} text-[0.875rem] text-slate-500 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:text-brand-400`}
         >
-          <Plus aria-hidden className="h-3.5 w-3.5" />
+          <Plus aria-hidden className="h-4 w-4" />
           サブタスクを追加
         </button>
       )}
@@ -234,146 +213,123 @@ export function SubtaskList({ taskId, subtasks, accent }: Props) {
   );
 }
 
+/** 丸チェック。通常の行と編集中の行の両方で使うので、見た目だけを切り出している。 */
+function SubtaskCircle({
+  accent,
+  checked,
+  className = '',
+}: {
+  accent: Accent;
+  checked: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={[
+        className,
+        'relative h-[1.375rem] w-[1.375rem] shrink-0 rounded-full border-2',
+        'flex items-center justify-center',
+        // 視覚は 22px のまま、当たり判定だけ擬似要素で広げる
+        // （親カードのチェックボックスと同じ方式）。
+        "before:absolute before:-inset-2 before:rounded-full before:content-['']",
+        'transition-[background-color,border-color,transform] active:scale-90',
+        checked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+      ].join(' ')}
+    >
+      {checked && (
+        <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
+          <path
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3 8.5l3 3 7-7"
+          />
+        </svg>
+      )}
+    </span>
+  );
+}
+
 interface RowProps {
   subtask: Subtask;
   accent: Accent;
   checked: boolean;
+  editing: boolean;
+  tabIndex: number;
   onToggle: () => void;
+  onStartEdit: () => void;
+  onCommitEdit: (title: string) => void;
   onRemove: () => void;
 }
 
-function SubtaskRow({ subtask, accent, checked, onToggle, onRemove }: RowProps) {
-  const {
-    setNodeRef,
-    // ドラッグの起点がドラッグ対象そのものではなく別要素（ハンドル）のときは、
-    // その要素を setActivatorNodeRef で教える必要がある。渡さないと @dnd-kit は
-    // 起点の位置をドラッグ対象の矩形から推測するため、キーボード操作の移動量と
-    // スクロール追従がずれる（1 回の ArrowDown で 2 つ動く / まったく動かない）。
-    setActivatorNodeRef,
-    transform,
-    transition,
-    isDragging,
-    attributes,
-    listeners,
-  } = useSortable({ id: subtask.id });
-
-  // ハンドルの上で始まったジェスチャを親カードの @dnd-kit へ渡さない。
-  // listeners は React props（onMouseDown / onTouchStart / onKeyDown）なので、
-  // 本来のハンドラを呼んでから合成イベントの伝播を止めれば、親の同名ハンドラには届かない。
-  // useSwipeAction は native リスナなのでこれでは止まらず、下の data-swipe-ignore が受け持つ。
-  const handleListeners = Object.fromEntries(
-    Object.entries(listeners ?? {}).map(([name, fn]) => [
-      name,
-      (e: React.SyntheticEvent) => {
-        (fn as (ev: React.SyntheticEvent) => void)(e);
-        e.stopPropagation();
-      },
-    ]),
-  );
-
-  return (
-    <SubtaskRowView
-      subtask={subtask}
-      accent={accent}
-      checked={checked}
-      onToggle={onToggle}
-      onRemove={onRemove}
-      rowRef={setNodeRef}
-      // P-15: Transform ではなく Translate。scaleX/scaleY を出さない。
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition: prefersReducedMotion() ? undefined : transition,
-      }}
-      // ドラッグ中の実体は DragOverlay 側が描くので、元の行は薄くして「抜けた跡」にする。
-      placeholder={isDragging}
-      handleRef={setActivatorNodeRef}
-      handleProps={{ ...attributes, ...handleListeners }}
-    />
-  );
-}
-
-interface ViewProps {
-  subtask: Subtask;
-  accent: Accent;
-  checked: boolean;
-  onToggle?: () => void;
-  onRemove?: () => void;
-  rowRef?: (el: HTMLElement | null) => void;
-  style?: React.CSSProperties;
-  /** 元の行がドラッグで抜けた状態（薄く表示するだけ。実体はオーバーレイ側）。 */
-  placeholder?: boolean;
-  /** オーバーレイとして浮いている行。 */
-  dragging?: boolean;
-  handleRef?: (el: HTMLElement | null) => void;
-  handleProps?: Record<string, unknown>;
-}
-
-/**
- * 行の見た目。並べ替え中の実体（DragOverlay）と、リスト内の行の両方で使う。
- * オーバーレイ側は `useSortable` を呼べないので、見た目だけをここに切り出している。
- */
-function SubtaskRowView({
+function SubtaskRow({
   subtask,
   accent,
   checked,
+  editing,
+  tabIndex,
   onToggle,
+  onStartEdit,
+  onCommitEdit,
   onRemove,
-  rowRef,
-  style,
-  placeholder,
-  dragging,
-  handleRef,
-  handleProps,
-}: ViewProps) {
+}: RowProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [draft, setDraft] = useState(subtask.title);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+  const triggerId = useId();
+
+  if (editing) {
+    return (
+      <li className="flex items-center gap-2.5 py-1">
+        <SubtaskCircle accent={accent} checked={checked} />
+        <input
+          autoFocus
+          type="text"
+          value={draft}
+          maxLength={CONSTANTS.SUBTASK_TITLE_MAX_LENGTH}
+          aria-label={`「${subtask.title}」を編集`}
+          onTouchStart={stopCardDrag}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onCommitEdit(draft);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              onCommitEdit(subtask.title); // 破棄（元のタイトルで確定 = 変更なし）
+            }
+          }}
+          // 欄の外を触ったら確定する（インライン追加と同じ規則）。
+          onBlur={() => onCommitEdit(draft)}
+          className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[0.9375rem] dark:border-slate-600 dark:bg-slate-900"
+        />
+      </li>
+    );
+  }
+
   return (
-    <li
-      ref={rowRef}
-      style={style}
-      className={[
-        'group flex items-start gap-1',
-        placeholder ? 'opacity-30' : '',
-        dragging
-          ? 'rounded-lg bg-white px-2 shadow-lg ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700'
-          : '',
-      ].join(' ')}
-    >
+    <li className="flex items-start gap-1">
       <button
         type="button"
+        tabIndex={tabIndex}
+        onTouchStart={stopCardDrag}
         onClick={(e) => {
           e.stopPropagation();
-          onToggle?.();
+          onToggle();
         }}
         aria-pressed={checked}
-        className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md py-1.5 pr-1 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+        className="flex min-w-0 flex-1 items-start gap-2.5 rounded-md py-2 pr-1 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
       >
-        <span
-          aria-hidden
-          className={[
-            'relative mt-[0.1875rem] h-5 w-5 shrink-0 rounded-full border-2',
-            'flex items-center justify-center',
-            // 視覚は 20px のまま、当たり判定だけ擬似要素で広げる
-            // （親カードのチェックボックスと同じ方式）。
-            "before:absolute before:-inset-2 before:rounded-full before:content-['']",
-            'transition-[background-color,border-color,transform] active:scale-90',
-            checked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
-          ].join(' ')}
-        >
-          {checked && (
-            <svg viewBox="0 0 16 16" className="h-3 w-3 text-white">
-              <path
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3 8.5l3 3 7-7"
-              />
-            </svg>
-          )}
-        </span>
+        <SubtaskCircle accent={accent} checked={checked} className="mt-0.5" />
         <span
           className={[
-            'min-w-0 flex-1 break-words text-[0.875rem] leading-snug',
+            'min-w-0 flex-1 break-words text-[0.9375rem] leading-snug',
             'transition-opacity duration-200',
             checked
               ? 'line-through opacity-50 text-slate-500 dark:text-slate-400'
@@ -384,29 +340,56 @@ function SubtaskRowView({
         </span>
       </button>
 
+      {/* 三点メニュー。親タスクと同じ導線を子にも用意する。
+          常時表示にしてあるのは、hover で現れる形にするとタッチ端末で
+          「1 タップ目が hover に消える」ためでもある。 */}
       <button
         type="button"
-        aria-label={`「${subtask.title}」を削除`}
+        ref={triggerRef}
+        id={triggerId}
+        tabIndex={tabIndex}
+        aria-label={`「${subtask.title}」のメニュー`}
+        aria-haspopup="true"
+        aria-expanded={menuOpen}
+        aria-controls={menuOpen ? menuId : undefined}
+        onTouchStart={stopCardDrag}
         onClick={(e) => {
           e.stopPropagation();
-          onRemove?.();
+          setMenuOpen((v) => !v);
         }}
-        className="mt-1 shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-slate-600"
+        className="mt-1 shrink-0 rounded p-2 text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-700"
       >
-        <X aria-hidden className="h-3.5 w-3.5" />
+        <MoreVertical aria-hidden className="h-4 w-4" />
       </button>
 
-      {/* 並べ替えハンドル。ここからしかドラッグを始められない。 */}
-      <button
-        type="button"
-        ref={handleRef}
-        {...handleProps}
-        data-swipe-ignore
-        aria-label={`「${subtask.title}」を並べ替え`}
-        className="mt-1 shrink-0 cursor-grab touch-none rounded p-1 text-slate-300 active:cursor-grabbing dark:text-slate-600"
+      <AnchoredMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        anchorRef={triggerRef}
+        id={menuId}
+        labelledBy={triggerId}
       >
-        <GripVertical aria-hidden className="h-3.5 w-3.5" />
-      </button>
+        <AnchoredMenuItem
+          onClick={() => {
+            setMenuOpen(false);
+            setDraft(subtask.title);
+            onStartEdit();
+          }}
+        >
+          <Pencil aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+          編集
+        </AnchoredMenuItem>
+        <AnchoredMenuItem
+          destructive
+          onClick={() => {
+            setMenuOpen(false);
+            onRemove();
+          }}
+        >
+          <Trash2 aria-hidden className="h-4 w-4" />
+          削除
+        </AnchoredMenuItem>
+      </AnchoredMenu>
     </li>
   );
 }

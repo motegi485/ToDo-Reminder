@@ -585,7 +585,14 @@ export function TaskCard({
                 ].join(' ')}
               >
                 <div className="overflow-hidden">
-                  <SubtaskList taskId={task.id} subtasks={subtasks} accent={accent} />
+                  {/* 畳んでいる間も DOM に残る（閉じる側もアニメーションさせるため）ので、
+                      expanded を渡して中のボタンを tab 順から外させる。 */}
+                  <SubtaskList
+                    taskId={task.id}
+                    subtasks={subtasks}
+                    accent={accent}
+                    expanded={expanded}
+                  />
                 </div>
               </div>
             )}
