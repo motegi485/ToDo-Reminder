@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FormDialog } from '@/components/ui/FormDialog';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { Toggle } from '@/components/ui/Toggle';
+import { fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 import { ReminderField } from './ReminderField';
 import { RecurrenceField } from './RecurrenceField';
 import { ColorPicker } from './ColorPicker';
@@ -77,6 +79,14 @@ function defaultReminderAt(): string {
   return d.toISOString();
 }
 
+// 期限の初期値: 今日の 23:59（DueDateSheet と同値）。
+// iOS Safari は空の datetime-local を「枠だけの空欄」として描画し、日時欄だと分からなくなる。
+function defaultDueDate(): string {
+  const d = new Date();
+  d.setHours(23, 59, 0, 0);
+  return d.toISOString();
+}
+
 export function TaskFormDialog({
   open,
   onClose,
@@ -134,6 +144,8 @@ export function TaskFormDialog({
   // 繰り返しの ON/OFF は絶対時刻 ⇄ N分前でリマインダーの意味が変わるため、切替時は
   // リマインダーを OFF に戻す（暗黙の変換で誤設定を生まないため。§4.1）。
   // ON 時は期限との排他で due_date も解除する。
+  // **この解除は以前ユーザーから見えなかった**（フォームに期限欄が無かったため、一覧へ
+  // 戻って初めて期限ピルの消失に気づく）。下の期限欄と注記でその場で分かるようにしている。
   const handleRecurrenceToggle = (on: boolean) => {
     setValues((prev) => ({
       ...prev,
@@ -142,6 +154,13 @@ export function TaskFormDialog({
       reminder_offset: null,
       reminder_at: null,
     }));
+  };
+
+  // 期限は繰り返しと排他（taskRepo の buildTask も due があれば recurrence を落とす）。
+  const isRecurring = values.recurrence_rule !== null;
+  const dueEnabled = values.due_date !== null;
+  const handleDueToggle = (on: boolean) => {
+    setField('due_date', on ? defaultDueDate() : null);
   };
 
   // リマインダーの入力モードは繰り返しの有無で決まる。
@@ -318,6 +337,52 @@ export function TaskFormDialog({
             </div>
           </div>
         )}
+
+        {/* 期限（表示専用メタデータ。通知には一切関与しない）。
+            繰り返しとは排他なので、繰り返し ON のあいだは無効化して理由を出す。 */}
+        <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+          <div className="pt-2 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-[0.9375rem] font-medium" id="task-due-label">
+                期限を設定
+              </label>
+              <Toggle
+                checked={dueEnabled}
+                onChange={handleDueToggle}
+                disabled={isRecurring}
+                label="期限を設定"
+              />
+            </div>
+            {isRecurring ? (
+              <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                繰り返しと期限は同時に設定できません。繰り返しを ON にすると期限は外れます。
+              </p>
+            ) : (
+              dueEnabled && (
+                <div className="space-y-2 pl-3 border-l-2 border-slate-200 dark:border-slate-700">
+                  <input
+                    type="datetime-local"
+                    aria-labelledby="task-due-label"
+                    value={toLocalInputValue(values.due_date)}
+                    onChange={(e) => {
+                      // 空入力は null（＝期限 OFF）にせず空文字を渡し、欄を畳まず保持したまま
+                      // バリデーション（V-4）で送信を止める（リマインダー欄と対称）。
+                      const raw = e.target.value;
+                      setField('due_date', raw === '' ? '' : fromLocalInputValue(raw));
+                    }}
+                    className="block w-full min-w-0 max-w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-[0.9375rem]"
+                  />
+                  <p className="text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+                    期限は表示専用です。その時刻に通知するには、下のリマインダーを設定してください。
+                  </p>
+                  {errors.due_date && (
+                    <p className="text-[0.8125rem] text-red-600">{errors.due_date}</p>
+                  )}
+                </div>
+              )
+            )}
+          </div>
+        </div>
 
         {/* 繰り返し（リマインダーの入力モードを決めるため、リマインダーより上に置く） */}
         <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
