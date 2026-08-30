@@ -559,13 +559,30 @@ export async function reorderSubtasks(
   return result;
 }
 
+/**
+ * 明示的に「未完了に戻す」。カードのチェックボックスと右スワイプの両方がここを通る。
+ *
+ * **サブタスクのチェックも全て外す。** 繰り返しタスクが周期境界で復活するとき
+ * （reviveRecurringTasks）と同じ「やり直し」の扱いに揃えている。
+ *
+ * このリセットを他の復活経路へ広げてはいけない:
+ *  - toggleSubtask の自動取り消し → 子 1 個を外しただけで他の子のチェックが全部消える
+ *  - addSubtask / updateTask の復活 → 手順を 1 つ足しただけで既存のチェックが消える
+ *  - restoreTask → 削除の取り消しは完了状態の復元であって、やり直しではない
+ *
+ * 未完了の子を残したまま確認ダイアログを経て完了させたタスク（例 2/4）を戻すと、
+ * その 2 件のチェックも消える。承知のうえで「戻す＝最初からやり直す」に寄せている。
+ */
 export async function uncompleteTask(id: string): Promise<void> {
   await db.transaction('rw', db.tasks, db.completions, async () => {
     const existing = await db.tasks.get(id);
     if (!existing) return;
+    // 壊れた値・別バージョンのクライアントが書いた形をそのまま書き戻さない。
+    const list = normalizeSubtasks(existing.subtasks);
     await db.tasks.put({
       ...existing,
       status: 'active',
+      subtasks: list === null ? null : list.map((s) => ({ ...s, done: false })),
       updated_at: Date.now(),
     });
     // 完了を取り消したら直近の完了ログも取り消す。
