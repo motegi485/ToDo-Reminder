@@ -89,6 +89,10 @@ SQLite は列 CHECK を後から緩められません。`type` に `'memo'` を�
 type Subtask = { id: string; title: string; done: boolean };
 ```
 
+**並び順は配列の順序そのもの**で、`sort_order` のような列は持ちません。UI からも並べ替えられません
+（カードにもフォームにも導線がない。[frontend.md](./frontend.md#並べ替えは持たない)）。順序が変わるのは
+追加（末尾）と削除、および削除の取り消し（元の位置へ挿入し直す）だけです。
+
 **なぜ独立行にしないのか**: メモ（`kind='memo'`）と違い、サブタスクは独立に検索・通知・
 並べ替えの対象になりません。行にすると `tasks` を読むすべての箇所に「子を除外する」フィルタが
 要ります。現在の対象は `src/lib/sort.ts` の `sortTasksInGroup`、`src/hooks/useProjects.ts` の
@@ -274,6 +278,7 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 | `todo_last_synced_at` | pull カーソル（サーバー採番 `server_seq` のウォーターマーク） |
 | `todo_last_pushed_at` | push カーソル（クライアント時計） |
 | `todo_cursor_schema` | pull カーソルの意味づけの版。古い版なら起動時に full pull へ戻す |
+| `todo_last_sync_ok_at` | 最後に push と pull の**両方**が成功した時刻（ms）。**表示専用**で同期の判断には一切使わない。上の 2 本のカーソルとは別キーにすること（push=クライアント時計 / pull=`server_seq` と意味が違い、混ぜると [I-2](./invariants.md#i-2-push-カーソルと-pull-カーソルは別の時計) 違反になる） |
 | `todo_notified_reminders` | 起動中ローカル通知の発火済み記録（`${taskId}@${reminder_time}` → 通知時刻）。7 日で間引き |
 | `todo_push_disabled` | この端末で Push 通知を停止しているか。**ブラウザの通知許可とは別軸**。アプリは起動のたびに購読を張り直す（自己修復）ため、このフラグが無いと「通知を停止」しても次回起動で復活する |
 | `todo_push_unconfirmed_endpoint` | ブラウザ購読はあるがサーバー登録を確認できない endpoint。ある間はローカル通知フォールバックを有効にする |

@@ -22,10 +22,16 @@
 が行います。詳細は [recurrence.md](./recurrence.md)。
 
 **周期をまたぐときに戻す値も同じ扱い**: 定量タスクの `current_value` を 0 に戻す処理と、サブタスク
-（`subtasks`）の `done` を全て `false` に戻す処理も、どちらも `reviveRecurringTasks()` の中だけで行います。
+（`subtasks`）の `done` を全て `false` に戻す処理も、`reviveRecurringTasks()` の中で行います。
 **サーバーにこれらを書かせない。** 理由は status とまったく同じで、書けば `updated_at` の扱いに関して
 上と同じジレンマに陥ります。どちらも `completed → active` の分岐の中にあり、`active` のまま持ち越した
 タスクには適用しません（途中まで進めた手順や現在値を、周期が変わっただけで消さない）。
+
+> サブタスクの `done` を一括で戻す処理は、ユーザーが明示的に「未完了に戻す」を押したときにも
+> 走ります（`uncompleteTask()`。[frontend.md](./frontend.md#親タスクとの連動)）。どちらもクライアント側の
+> 処理であり、この不変条件（**サーバーが書かない**）は変わりません。他の「復活」経路
+> （`toggleSubtask` の自動取り消し、`addSubtask` / `updateTask` の復活、`restoreTask`）へは
+> 広げないこと — 広げると子 1 個の操作で他の子のチェックが消えます。
 
 ---
 
@@ -355,6 +361,8 @@ localStorage の `todo_notified_reminders` で、**重複排除ストアが別�
 | P-13 | **公開する Markdown は LF で追跡する。** `.gitattributes` が `*.md` を LF に固定する。既存の非 Markdown の改行を、無関係な変更で一括変換しない |
 | P-14 | **`docs/` は Git 追跡対象かつ公開予定。** 実同期コード、鍵、購読 endpoint、利用者データ、バックアップ、ログ生値を置かない |
 | P-15 | **並べ替えカードの transform は `CSS.Translate.toString()` を使う（`CSS.Transform` ではない）。** 後者は `scaleX()/scaleY()` も出力し、`useSortable` は「計測済み矩形 ÷ 実測矩形」から縮尺を導出する。高さの違うカードが混ざる列（サブタスクを展開したカード）では入れ替わりの瞬間に縮尺が 1 から外れ、カードが潰れて見える。縦一列の並べ替えに拡大縮小は不要 |
-| P-16 | **`@dnd-kit` の `activationConstraint` に `delay` を入れたら、その要素は「掴んですぐ動かす」操作を受け付けなくなる。** delay 経過前に `tolerance` を超えて動くとドラッグは中止され、**そのタッチでは再開しない**。長押しが要るのは「同じ面をスクロール・スワイプと取り合う」場合だけで、専用ハンドル（`touch-action: none`）には `distance` 制約を使う |
-| P-17 | **`overflow: hidden` の内側にある要素をその場でドラッグさせない。** 箱の外へ出た瞬間に切り取られ、祖先の重なり順にも閉じ込められて「他のカードの下へ潜り込んで消える」。サブタスクの行は展開アニメーション用の `overflow-hidden` の中にいるため、`DragOverlay` を `document.body` へ portal して浮かせる。`modifiers` は `DndContext` と `DragOverlay` の**両方**に渡すこと（前者は draggable の transform、後者は実際に見えるオーバーレイに効く） |
+| P-16 | **`@dnd-kit` の `activationConstraint` に `delay` を入れたら、その要素は「掴んですぐ動かす」操作を受け付けなくなる。** delay 経過前に `tolerance` を超えて動くとドラッグは中止され、**そのタッチでは再開しない**。長押しが要るのは「同じ面をスクロール・スワイプと取り合う」場合だけで、専用ハンドル（`touch-action: none`）には `distance` 制約を使う（この教訓の出どころだったサブタスクの並べ替えハンドルは 2026-08-30 に撤去済み。現在 `delay` を使うのは `ProjectGroup` のカード並べ替えだけ） |
+| P-16b | **`@dnd-kit` の長押しドラッグが成立すると、直後の `click` が握り潰される。** `AbstractPointerSensor.handleStart()` が `document` の capture 段階へ `click` → `stopPropagation` を登録し、外れるのは `detach()` の 50ms 後（6.3.1 で確認、2026-08-30）。カードの根が丸ごとドラッグ起点なので、**5px 以内で 200ms 静止したタッチ＝小さい的を丁寧に押す動作**でこれが起きる。症状は「1 タップ目が効かず、2 タップ目で効く」。`onClick` の `stopPropagation` では止まらない（相手は capture の document リスナ）。カード内の操作要素は `onTouchStart` で親へ伝播させない（`src/components/task/stopCardDrag.ts`） |
+| P-17 | **`overflow: hidden` の内側にある要素を、その場に `absolute` / ドラッグで浮かせない。** 箱の外へ出た瞬間に切り取られ、祖先の重なり順にも閉じ込められて「他のカードの下へ潜り込んで消える」。サブタスクの行は展開アニメーション用の `overflow-hidden` の中にいるため、行の三点メニューは `document.body` へ portal して `position: fixed` で置く（`src/components/ui/AnchoredMenu.tsx`）。`DragOverlay` で同じことをしていた頃は、`modifiers` を `DndContext` と `DragOverlay` の**両方**に渡す必要があった（前者は draggable の transform、後者は実際に見えるオーバーレイに効く） |
+| P-19 | **hover でしか現れないコントロールを作らない。** タッチ端末では sticky hover になって「選択中」に見えるうえ、iOS Safari は「hover で内容が変わる要素は 1 タップ目を hover に使う」ため、その行のタップを 1 回余分に食う。`tailwind.config.ts` の `future.hoverOnlyWhenSupported` で `hover:` は `@media (hover: hover)` に包んであるが、**包んでも「タッチでは出ない＝発見できない」ことは変わらない** |
 | P-18 | **`overflow-x-auto` の要素を flex の子にするなら `shrink-0` か `min-w-0` を必ず付ける。** flex アイテムの既定 `min-width: auto` は内容幅を下限にするため、横スクロールが効かずカードごと横に伸びる。レポートの完了ヒートマップは 2 カラム化に伴い、外側の左カラムを `sm:shrink-0` で内容幅に固定し、`sm` 未満で凡例と横並びになるスクローラ自身にも `min-w-0 flex-1` を付けている（`sm` 以上は親が `sm:block` に戻るのでどちらも効かなくなる） |
