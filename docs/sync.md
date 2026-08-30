@@ -255,7 +255,33 @@ pull していない」というありふれた状態（サーバーが `conflic
 
 ---
 
+## 同期ステータス（画面に常設する）
+
+トーストは 3 秒で消え、403（コード未登録）に至っては `notAllowedNotified` により
+**1 セッションに 1 回しか出ません**。起動直後のその 1 回を見逃すと、ユーザーは
+「同期されている」と信じたまま何日でも使い続けられます。オフラインバナーは
+`navigator.onLine` しか見ないため、回線はあるのにサーバーへ届いていない状態
+（Worker 障害 / `VITE_API_URL` の誤り / allowlist 未登録）はどこにも現れていませんでした。
+
+そこで `src/lib/sync.ts` が購読可能な状態を持ち、設定画面の `SyncStatusCard` が常設表示します。
+
+| 項目 | 内容 |
+|---|---|
+| `state` | `idle` / `syncing` / `ok` / `error` |
+| `errorKind` | `not_allowed` / `push_failed` / `pull_failed` / `both_failed` / `offline` / `not_configured` / `no_code` |
+| `lastOkAt` | 最後に push と pull の**両方**が成功した時刻。`todo_last_sync_ok_at` に永続化 |
+| `skipped` | 直近の push で別コード所有により書けなかった件数。0 になるまで表示に残す |
+
+- 購読は `useSyncExternalStore`（`src/hooks/useSyncStatus.ts`）。`getSyncStatus()` は
+  変化したときだけ新しい参照を返す（`setStatus` がオブジェクトを作り直す）。
+- **`lastOkAt` をカーソル 2 本に相乗りさせないこと。** 表示専用の値であり、同期の判断には使いません。
+- **`state === 'idle'` を「成功」と見せないこと。** 起動直後の一瞬だけこの値になりますが、
+  そこで緑のチェックを出すと、いちばん伝えたくない嘘（同期できている）をそのまま表示することになります。
+- `switchSyncCode` の成功時にもステータスを `ok` へ戻します（前のコードで出ていた 403 表示を引きずらせない）。
+
 ## トラブルシュート
+
+**まず設定画面の「同期」セクションを見てください**（状態・最終同期時刻・「今すぐ同期」）。
 
 | 症状 | 疑うところ |
 |---|---|
