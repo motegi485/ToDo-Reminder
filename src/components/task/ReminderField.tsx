@@ -1,5 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Toggle } from '@/components/ui/Toggle';
+import { MobilePwaGuide } from '@/components/ui/MobilePwaGuide';
+import { requestNotificationPermission, subscribePush } from '@/lib/notifyClient';
+import { isIOS, isStandalone } from '@/lib/mobileDetect';
 import { REMINDER_PRESETS } from '@/lib/constants';
 import { fromLocalInputValue, toLocalInputValue } from '@/lib/format';
 
@@ -24,6 +28,93 @@ interface Props {
 
 const PRESET_VALUES = REMINDER_PRESETS.map((p) => p.value);
 const LEAD_MIN_MS = 5 * 60 * 1000;
+
+type PermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
+
+function readPermission(): PermissionState {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  return Notification.permission;
+}
+
+/**
+ * リマインダーを ON にしたのに通知が鳴らない状態を、その場で知らせて直せるようにする。
+ *
+ * これが無いと、未許可のままリマインダー付きタスクを作っても Push もローカル通知も走らず、
+ * **黙って何も起きない**。ユーザーが自力で「設定 → 通知 → 通知を許可」まで辿り着かない限り
+ * リマインダーは永久に鳴らないが、その因果はどこにも表示されていなかった。
+ *
+ * **許可ダイアログは必ずユーザー操作の起点で出すこと。** トグル ON で自動要求すると、
+ * その場で拒否された端末は以後アプリから許可を出し直せなくなる。
+ */
+function NotificationNotice() {
+  const [perm, setPerm] = useState<PermissionState>(readPermission);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const onFocus = () => setPerm(readPermission());
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  const needsInstall = isIOS() && !isStandalone();
+
+  // iOS はホーム画面へ追加しないと Web Push を受信できない。許可状態より先に案内する。
+  let body: React.ReactNode = null;
+  if (needsInstall) {
+    body = (
+      <>
+        <p>iOS ではホーム画面に追加しないと通知を受け取れません。</p>
+        <button
+          type="button"
+          onClick={() => setGuideOpen(true)}
+          className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-white dark:bg-amber-500 dark:text-slate-900"
+        >
+          追加方法を見る
+        </button>
+      </>
+    );
+  } else if (perm === 'default') {
+    body = (
+      <>
+        <p>通知が許可されていないため、このリマインダーは鳴りません。</p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const result = await requestNotificationPermission();
+              setPerm(readPermission());
+              if (result === 'granted') await subscribePush();
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="mt-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-white disabled:opacity-50 dark:bg-amber-500 dark:text-slate-900"
+        >
+          通知を許可
+        </button>
+      </>
+    );
+  } else if (perm === 'denied') {
+    body = <p>通知が拒否されています。ブラウザの設定から許可してください。</p>;
+  } else if (perm === 'unsupported') {
+    body = <p>このブラウザは通知に対応していないため、リマインダーは鳴りません。</p>;
+  }
+
+  if (body === null) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-[0.8125rem] leading-relaxed text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
+      <div className="flex items-start gap-2">
+        <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0 flex-1">{body}</div>
+      </div>
+      <MobilePwaGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
+    </div>
+  );
+}
 
 export function ReminderField({
   mode,
@@ -69,6 +160,7 @@ export function ReminderField({
       </div>
       {enabled && (
         <div className="space-y-2 pl-3 border-l-2 border-slate-200 dark:border-slate-700">
+          <NotificationNotice />
           {mode === 'offset' ? (
             <>
               <select
