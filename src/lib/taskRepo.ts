@@ -530,27 +530,56 @@ export async function removeSubtask(taskId: string, subtaskId: string): Promise<
 }
 
 /**
- * サブタスクを並べ替える。並び順は配列の順序そのもの（親タスクの sort_order のような
- * fractional 採番は使わない）。子は 1 行にまとまっているので、並べ替えても書き込みは親 1 行だけ。
+ * サブタスクのタイトルを書き換える（カード上のインライン編集）。
+ *
+ * **`done` と親の `status` には触らない。** リネームは進捗の記録ではなく構造の編集なので、
+ * removeSubtask が親を自動完了させないのと同じ考え方で、完了状態を動かさない。
+ * 空文字は呼び出し側で弾く想定だが、ここでも no-op にして防御する。
  */
-export async function reorderSubtasks(
+export async function renameSubtask(
   taskId: string,
-  activeId: string,
-  overId: string,
+  subtaskId: string,
+  title: string,
 ): Promise<Task | null> {
-  if (activeId === overId) return null;
+  const trimmed = title.trim().slice(0, CONSTANTS.SUBTASK_TITLE_MAX_LENGTH);
+  if (trimmed.length === 0) return null;
   let result: Task | null = null;
   await db.transaction('rw', db.tasks, async () => {
     const existing = await db.tasks.get(taskId);
     if (!existing) return;
     const list = normalizeSubtasks(existing.subtasks);
-    if (list === null) return;
-    const from = list.findIndex((s) => s.id === activeId);
-    const to = list.findIndex((s) => s.id === overId);
-    if (from < 0 || to < 0) return;
+    const target = list?.find((s) => s.id === subtaskId);
+    if (!target || target.title === trimmed) return;
+    const next = list!.map((s) => (s.id === subtaskId ? { ...s, title: trimmed } : s));
+    const task: Task = { ...existing, subtasks: next, updated_at: Date.now() };
+    await db.tasks.put(task);
+    result = task;
+  });
+  if (result) scheduleSync();
+  return result;
+}
+
+/**
+ * 削除したサブタスクを元の位置へ戻す（削除の取り消しトースト用）。
+ *
+ * removeSubtask は最後の 1 件を消すと subtasks を null へ畳むので、戻す側は
+ * 「null からの復元」も扱えなければならない。id が既に存在する場合は何もしない
+ * （他端末の pull で先に戻っている可能性がある。二重に生やして重複させない）。
+ */
+export async function restoreSubtask(
+  taskId: string,
+  subtask: Subtask,
+  index: number,
+): Promise<Task | null> {
+  let result: Task | null = null;
+  await db.transaction('rw', db.tasks, async () => {
+    const existing = await db.tasks.get(taskId);
+    if (!existing || existing.status === 'deleted') return;
+    const list = normalizeSubtasks(existing.subtasks) ?? [];
+    if (list.some((s) => s.id === subtask.id)) return;
+    if (list.length >= CONSTANTS.SUBTASK_MAX_COUNT) return;
     const next = [...list];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
+    next.splice(Math.max(0, Math.min(index, next.length)), 0, subtask);
     const task: Task = { ...existing, subtasks: next, updated_at: Date.now() };
     await db.tasks.put(task);
     result = task;
