@@ -21,6 +21,8 @@ npm run preview
 
 `npm run dev` では Service Worker が有効になりません。Service Worker、更新適用、Push 購読 UI を確認するときは `npm run build` 後の `npm run preview` を使います。
 
+`npm run dev` と `npm run preview` は **localhost にだけ**待ち受けます。スマートフォン実機から同じ LAN 上の開発機へアクセスして確認したい場合は `npm run dev:lan`（= `vite --host`）を使います。root 直下の Git 管理外ファイル（`.env` / `wrangler.toml`）を LAN へ晒しうる操作なので、信頼できるネットワークでのみ実行し、確認が終わったら止めてください（[security.md](./security.md#開発サーバーの公開範囲)）。
+
 ## フロントエンドの手動確認
 
 変更の影響に応じて、別のブラウザプロファイルまたは開発用の空データから次を確認します。

@@ -126,6 +126,7 @@ Worker と Pages は Cloudflare のデプロイ履歴から戻せますが、D1 
 - 新規タスクを作成し、同じ同期コードを設定した別端末または別ブラウザプロファイルに反映される。
 - Push を使う場合、許可ダイアログ、購読登録、通知スケジュール、Service Worker 更新を実機で確認する。
 - Cron trigger と D1 binding が対象 Worker に存在することをダッシュボードで確認する。
+- **配信物にライセンス原本が含まれる。** `npm run build` は `LICENSE` と `THIRD-PARTY-NOTICES.md` を `dist/` へコピーします（`vite.config.ts` の `copy-license-files`）。ビルド後に 2 ファイルが `dist/` にあり root の原本とハッシュが一致すること、Pages 上で `/LICENSE` と `/THIRD-PARTY-NOTICES.md` が SPA fallback ではなく実ファイルを返すことを確認します。ソースを見れば原本には辿り着けますが、**Pages から配信物だけを取得した人には到達手段がない**ため、MIT / ISC / Apache-2.0 が求める同梱を配信工程で満たします。
 
 ## 監視とログ
 
