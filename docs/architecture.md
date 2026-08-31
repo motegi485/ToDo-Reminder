@@ -99,7 +99,8 @@ npm run dev
 
 | コマンド | 用途 |
 |---|---|
-| `npm run dev` | 開発サーバー。Service Worker は無効。 |
+| `npm run dev` | 開発サーバー。**localhost のみ**に待ち受ける。Service Worker は無効。 |
+| `npm run dev:lan` | 開発サーバーを LAN へ公開（`vite --host`）。実機確認のときだけ、信頼できるネットワークで使う（[security.md](./security.md#開発サーバーの公開範囲)）。 |
 | `npm run typecheck` | フロントと Workers の型チェック。 |
 | `npm run build` | 型チェックと本番ビルド。 |
 | `npm run preview` | ビルド成果物をローカル配信。PWA/SW の確認に使う。 |
