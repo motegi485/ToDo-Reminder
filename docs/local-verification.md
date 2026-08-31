@@ -54,6 +54,7 @@ npx wrangler d1 execute <database-name> --local --file .\migrations\0004_add_tz_
 npx wrangler d1 execute <database-name> --local --file .\migrations\0005_add_color.sql
 npx wrangler d1 execute <database-name> --local --file .\migrations\0006_push_subscriptions.sql
 npx wrangler d1 execute <database-name> --local --file .\migrations\0007_add_memo_columns.sql
+npx wrangler d1 execute <database-name> --local --file .\migrations\0008_add_subtasks.sql
 ```
 
 4. Worker をローカル起動する。Cron を確認する場合の trigger 方法は Wrangler のバージョンに依存するため、使用するバージョンの公式ドキュメントを確認してから行う。

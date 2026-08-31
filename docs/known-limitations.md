@@ -18,6 +18,9 @@
 | 依存ライセンス | 要判断 | Web Push の推移依存に、利用許諾の確認が必要なものがある。また `qrcode-generator` は LICENSE ファイルを同梱しておらず、`package.json` の `"license": "MIT"` と配布ファイル冒頭の著作権表示だけが根拠になっている。法的な判断は人間が行う。 [security.md](./security.md#依存ライセンス)、[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) |
 | QR 読み取りの依存が未メンテ | 許容 | `jsqr` は最終公開が 2021-04-24 で更新が止まっている。ネットワークにも DOM にも触れない純粋関数（`Uint8ClampedArray` → デコード結果）なので攻撃面は小さいが、不具合の上流修正は期待できない。差し替え候補は `barcode-detector`（zxing-wasm）だが、wasm を既定で CDN 取得するためオフライン PWA には手当てが要る。 [security.md](./security.md#qr-による端末追加) |
 | QR は OS 標準カメラで読めない | 設計 | QR に同期コードの生文字列だけを載せ URL を載せない判断の代償。読み取りはアプリ内カメラでのみ成立する。 [security.md](./security.md#qr-による端末追加) |
+| 繰り返しの復活判定が `updated_at` に相乗り | 制約あり | `updated_at` が最終更新時刻と完了時刻を兼ねるため、周期が明けた後・復活する前に編集すると復活と通知が 1 周期飛ぶ。`renameProject` は `completed` 行も巻き込む。解消には同期対象の完了専用列（例 `last_completed_at`）の追加と、既存 `completed` 行のバックフィル方針の決定が要る。 [recurrence.md](./recurrence.md#既知の制約-updated_at-が完了時刻を兼ねている) |
+| tombstone の保持期間 | 制約あり | 保持期間をクライアント申告の `updated_at` で測るため、時計が大きくずれた端末や 365 日以上離脱した端末では削除が収束せず、削除済みタスクが復活し得る。解消にはサーバー受理時刻の retention 列と、「何日離脱した端末まで整合を保証するか」の決定が要る。 [operations.md](./operations.md#既知の制約-保持期間をクライアント時計で測っている) |
+| Dexie v2 → v3 の巻き戻り（移行済み端末） | 制約あり | v3 移行が `updated_at` を進めていなかった期間に移行した端末では、変換結果が旧サーバー行へ巻き戻っている可能性がある。是正後も遡って修復はされない（対象タスクを一度編集すれば解消）。 [data-model.md](./data-model.md#v3-マイグレーションsrclibdbts) |
 
 ## 検証基盤の制約
 

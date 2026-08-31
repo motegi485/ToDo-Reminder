@@ -61,6 +61,7 @@
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0005_add_color.sql
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0006_push_subscriptions.sql
    npx wrangler d1 execute <database-name> --remote --file .\migrations\0007_add_memo_columns.sql
+   npx wrangler d1 execute <database-name> --remote --file .\migrations\0008_add_subtasks.sql
    ```
 
 4. 承認済みの鍵生成方法で VAPID 鍵ペアを作り、公開鍵をフロント設定と Worker 実行時設定に、秘密鍵を Worker Secret に設定する。このリポジトリには VAPID 鍵を生成する固定済みのツールやスクリプトはありません。未固定のパッケージをその場で追加して生成するのではなく、組織で承認した方法を使います。
@@ -163,6 +164,23 @@ export にはタスク本文、同期に必要なメタデータ、Push 購読�
 | `users` | 30 日より古く、タスクも Push 購読も持たない。 |
 
 繰り返しタスクの `completed` は次周期の状態を表すため、自動クリーンアップでは削除しません。Push 購読の網羅的な定期削除はなく、送信時に `expired`（404 / 410、または壊れた保存 JSON）と判定された endpoint が削除されます。`permanent` な 4xx は購読削除の条件ではありません。実際に Cron が登録・実行されているかは本番設定を別途確認します。
+
+### 既知の制約: 保持期間をクライアント時計で測っている
+
+`tasks` の削除条件にある `updated_at` は**クライアント申告値**です。`isValidPayload` は未来側だけを
+366 日で制限し、過去側は 0 以上なら受理します（[invariants.md P-10](./invariants.md#落とし穴集不変条件ではないが知らないと踏むもの)）。
+そのため保持期間の起点は「サーバーが受け取った時刻」ではなく「その端末が主張した時刻」になります。
+
+- 時計が大きく遅れた端末が、既存行より新しいが**現在から 365 日以上過去**の `deleted` 更新を送ると、
+  その tombstone は翌日の cleanup で物理削除されます。まだ削除を pull していない別端末が
+  古い `active` 行を再 push すると、サーバーに行が無いので新規 INSERT になり、**削除したタスクが復活します**。
+- 時計が正常でも、**365 日以上アプリを開かなかった端末**が復帰すると同じ結末になります
+  （tombstone が既に消えているため）。
+
+**解消には、LWW 用の `updated_at` とは別にサーバー受理時刻の retention 列（または削除 journal）が要ります。**
+D1 のスキーマ変更を伴い、「何日離脱した端末まで整合を保証するか」という保持コストとのトレードオフを
+決める必要があります。列を足す手順そのものは
+[列追加と旧クライアントの互換](./sync.md#列追加と旧クライアントの互換)で確定済みです。
 
 ## 障害調査の入口
 
