@@ -33,6 +33,9 @@ function syncCode(): string {
 function buildMemo(input: MemoInput, base?: Task): Task {
   const now = Date.now();
   return {
+    // この版が知らない列を落とさない（`buildTask` と同じ理由。[I-17] を参照）。
+    // 既知の列はこの下で全て明示的に上書きするので、メモ行の不変条件は変わらない。
+    ...base,
     id: base?.id ?? generateId(),
     sync_code: base?.sync_code ?? syncCode(),
     title: input.title.trim(),
