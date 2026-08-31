@@ -57,6 +57,13 @@ const DELIVERY_TEXT: Record<string, { title: string; hint: string; ok: boolean }
     hint: 'Service Worker が登録されていません。アプリを再読み込みしてください。',
     ok: false,
   },
+  // 停止中は下の pushDisabled 分岐が別の UI を出すため通常は到達しないが、
+  // 表示が未定義に落ちる経路を残さない。
+  'none:disabled': {
+    title: 'この端末では通知を停止しています',
+    hint: 'Push もアプリ起動中のローカル通知も出しません。他の端末には引き続き届きます。',
+    ok: false,
+  },
 };
 
 function deliveryKey(d: NotificationDelivery): string {
