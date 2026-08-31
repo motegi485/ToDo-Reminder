@@ -62,14 +62,19 @@
 
 ```
 boundaryUtcMs = reminderMs + offsetMin * 60_000        // その周期の境界（UTC）
-d = new Date(boundaryUtcMs + tzOffsetMin * 60_000)     // ローカル時刻空間へシフト
+shifted       = boundaryUtcMs + tzOffsetMin * 60_000   // ローカル時刻空間へシフト
                                                         // 以後 getUTC*/setUTC* がローカル壁時計として働く
-d.setUTCDate(d.getUTCDate() + 1)                       // daily なら 1 日進める
-nextBoundaryUtcMs = d.getTime() - tzOffsetMin * 60_000 // UTC へ戻す
+                                                        // ↓ addPeriod(): 最寄りの真夜中からのずれを外す
+delta         = 最寄りのローカル真夜中からのずれ（通常 0、DST でずれた tz_offset のとき ±1h）
+d = new Date(shifted - delta)
+d.setUTCDate(d.getUTCDate() + 1)                       // daily なら 1 日進める（monthly は setUTCMonth）
+nextShifted   = d.getTime() + delta                    // ずれを戻す
+nextBoundaryUtcMs = nextShifted - tzOffsetMin * 60_000 // UTC へ戻す
 next = nextBoundaryUtcMs - offsetMin * 60_000          // 次の reminder_time
 ```
 
 `periodStartMs()` は逆向き（1 周期戻す）で、「このリマインダーが属する周期の開始」を求めます。
+`addPeriod()` の `delta` の出し入れは、下の「既知の制約: DST」にある**月次の 1 日ずれ**を防ぐためです。
 
 ### 既知の制約: DST
 
@@ -93,6 +98,32 @@ next = nextBoundaryUtcMs - offsetMin * 60_000          // 次の reminder_time
 | サーバーが 1 周期前進 | `2026-03-09T04:50:00.000Z` |
 | DST 後の正しい値 | `2026-03-09T03:50:00.000Z`（EDT, tz_offset -240） |
 | ずれ | **60 分**（旧コードでは補正されない / 現行は補正される） |
+
+**2026-08-31 に是正（月次のみ）**: 上の「最大 1 時間」は daily / weekly では成立していましたが、
+**monthly では丸 1 日ずれる反例**がありました。ずれた `tz_offset` でローカル時刻空間へシフトすると
+境界が「前月の末日 23:00」や「翌月 1 日 01:00」になり、そこへ `setUTCMonth(±1)` を当てると
+別の日へ着地します。
+
+| 起点 | `setUTCMonth(+1)` の結果 | 本来 |
+|---|---|---|
+| 3/31 23:00 | 4/31 は存在しないので **5/1** へ桁あふれ（丸 1 日遅れ） | 4/30 23:00 |
+| 4/30 23:00 | **5/30** 23:00（丸 1 日早い） | 5/31 23:00 |
+
+現在は `addPeriod()` が「最寄りのローカル真夜中からのずれ」をいったん外してから加減算し、
+同じずれを戻します。daily / weekly は等差の ms 加算なので**結果は従来と完全に同一**で、
+`tz_offset` が現在の実オフセットと一致している通常時も `delta = 0` なので挙動は変わりません。
+
+反例の実測（`TZ=America/New_York`、毎月・境界 10 分前、DST 前に保存した `tz_offset = -300`）:
+
+| | 値 |
+|---|---|
+| 起点の `reminder_time` | `2026-04-01T03:50:00.000Z` |
+| 旧コードが前進させた値 | `2026-05-02T03:50:00.000Z`（**1 日遅れ**） |
+| 現行 / 期待値 | `2026-05-01T03:50:00.000Z` |
+
+`America/New_York` / `Australia/Sydney` / `Europe/London` の 12 ヶ月ぶんで検証し、現行は
+どの月も期待値との差が 1 時間以内に収まりました（発火日が動く誤りは消えています）。残る
+最大 1 時間のずれは従来どおりで、クライアントが次回復活時に補正します。
 
 ### 既知の制約: 0004 以前の行
 

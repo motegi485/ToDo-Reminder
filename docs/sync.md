@@ -132,6 +132,7 @@ MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?)
 | 状況 | ステータス | ボディ |
 |---|---|---|
 | 不正 JSON / 空ボディ / `null` / 配列 / スカラ | 400 | `{"error":"invalid JSON body"}` |
+| **本文がバイト上限を超えた** | **413** | `{"error":"request body too large"}` |
 | 同期コードの形式不正 | 400 | `{"error":"invalid sync_code"}` |
 | **allowlist に無い同期コード** | **403** | `{"error":"sync code not allowed"}` |
 | `tasks` が配列でない | 400 | `{"error":"tasks must be an array"}` |
@@ -145,6 +146,13 @@ MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?)
 
 > `Content-Type` は検証していません（`text/plain` でも受理されます）。副作用を起こすには
 > 有効な同期コードが要るため、実害はありません。
+
+**本文のバイト上限は認可より前に効きます**（2026-08-31 に追加）。同期コードの形式検証も allowlist も
+パースの後にしか走らないため、上限が無いと許可されていない第三者が認可前に巨大な JSON を
+メモリへ展開させられます。`Content-Type` と違い、これは同期コードを知らなくても踏める経路です。
+上限は `/api/sync/push` が 4 MiB、それ以外の 3 API が 32 KiB（値の根拠は
+`workers/lib/constants.ts` の `SYNC_PUSH_BODY_MAX_BYTES` のコメント）。`Content-Length` は
+省略も詐称もできるので、ストリームを読みながら実バイト数で打ち切ります。
 
 ---
 

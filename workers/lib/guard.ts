@@ -1,23 +1,91 @@
 import type { Env } from './cors';
+import { jsonResponse } from './cors';
 import { ALLOWED_PUSH_HOSTS, LIMITS } from './constants';
+
+export type JsonBody<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: 'invalid' | 'too_large' };
+
+/**
+ * `maxBytes` を超えない範囲だけ本文を読む。超えたら読み取りを打ち切って null を返す。
+ *
+ * `request.text()` / `request.json()` は本文を丸ごとメモリへ載せるため、上限を
+ * 「読んだ後」に確かめても手遅れになる。Content-Length は省略も詐称もできるので、
+ * ストリームを自分で数えながら読むことでしか上限は強制できない。
+ */
+async function readLimitedText(request: Request, maxBytes: number): Promise<string | null> {
+  if (request.body === null) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    merged.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
 
 /**
  * リクエストボディを JSON オブジェクトとして読む。
- * 失敗（不正 JSON / 空ボディ / null / 配列 / スカラ）は null を返す。
+ * 失敗（不正 JSON / 空ボディ / null / 配列 / スカラ）は `reason: 'invalid'`、
+ * `maxBytes` 超過は `reason: 'too_large'` を返す。
  *
  * 以前は各ハンドラが `request.json()` を直接 await しており、例外が
  * `workers/index.ts` の catch に飲まれて **クライアントの誤りに 500 を返して**
  * いた。500 は「サーバーが壊れた」の意味なので、監視の誤検知になり、
  * 攻撃者が安価にエラーログを量産できる状態でもあった。
+ *
+ * **サイズ上限は認可より前に効かせる。** 同期コードの形式検証も allowlist も
+ * パースの後にしか走らないため、上限が無いと「許可されていない第三者が、
+ * 認可前に巨大 JSON をメモリへ展開させられる」状態になる（上限値の根拠は
+ * `constants.ts` の SYNC_PUSH_BODY_MAX_BYTES / DEFAULT_BODY_MAX_BYTES）。
  */
-export async function readJsonObject<T>(request: Request): Promise<T | null> {
-  try {
-    const value = await request.json<unknown>();
-    if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
-    return value as T;
-  } catch {
-    return null;
+export async function readJsonObject<T>(
+  request: Request,
+  maxBytes: number,
+): Promise<JsonBody<T>> {
+  // 宣言値があれば読む前に落とす（安いほうの経路）。無い / 詐称された場合も
+  // readLimitedText が実バイト数で打ち切るので、ここは早期リターンにすぎない。
+  const declared = Number(request.headers.get('Content-Length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    return { ok: false, reason: 'too_large' };
   }
+
+  const text = await readLimitedText(request, maxBytes);
+  if (text === null) return { ok: false, reason: 'too_large' };
+
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: true, value: value as T };
+  } catch {
+    return { ok: false, reason: 'invalid' };
+  }
+}
+
+/** `readJsonObject` の失敗をそのまま HTTP 応答にする（4 ハンドラで共通）。 */
+export function jsonBodyErrorResponse(
+  result: { ok: false; reason: 'invalid' | 'too_large' },
+  env: Env,
+  request: Request,
+): Response {
+  return result.reason === 'too_large'
+    ? jsonResponse({ error: 'request body too large' }, env, request, 413)
+    : jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
 }
 
 /**
