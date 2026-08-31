@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "vite --host",
     "build": "tsc -b && tsc -p tsconfig.workers.json && cross-env NODE_OPTIONS=--max-old-space-size=8192 vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b && tsc -p tsconfig.workers.json"
