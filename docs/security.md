@@ -61,6 +61,7 @@ UI 上のマスク（伏せ字と目のアイコン）は**肩越しに覗かれ
 
 | 境界 | コード上の防御 | 変更時の確認先 |
 |---|---|---|
+| API 本文のサイズ | **認可より前に**バイト上限で打ち切り、超過は `413`（push 4 MiB / 他 32 KiB）。`Content-Length` は省略・詐称できるためストリームを実バイト数で数える | `workers/lib/guard.ts`、`workers/lib/constants.ts`、[api.md](./api.md) |
 | API 本文 | JSON オブジェクト、同期コード、件数、型、長さ、時刻、繰り返し種別を検証 | `workers/api/`、`workers/lib/lww.ts`、[api.md](./api.md) |
 | 同期の競合 | 条件付き LWW upsert と `server_seq` | `workers/lib/lww.ts`、[sync.md](./sync.md) |
 | Push endpoint | HTTPS と許可ホストを保存時と送信前に検証 | `workers/lib/guard.ts`、`workers/lib/constants.ts` |
@@ -69,6 +70,8 @@ UI 上のマスク（伏せ字と目のアイコン）は**肩越しに覗かれ
 | 通知本文 | 制御文字の除去と長さ制限 | `workers/lib/guard.ts` |
 
 これらはコード上の防御であり、運用上の設定漏れや実環境の誤設定を検出するものではありません。API を変える場合は [api.md](./api.md) と [development-workflow.md](./development-workflow.md) を同時に更新します。
+
+**サイズ上限を認可より前に置くのは、同期コードの検証も allowlist もパースの後にしか走らないためです。** 上限が無いと、許可されていない第三者でも認可前に巨大な JSON をメモリへ展開させられます（Cloudflare のリクエスト本文上限は 100MB、isolate のメモリは 128MB）。これはアクセス制御ではなく可用性側の防御なので、WAF や Rate Limiting の代わりにはなりません。
 
 ## クラウドサービスの上限
 
