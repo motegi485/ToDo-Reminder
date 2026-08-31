@@ -19,9 +19,12 @@ export type NotificationDelivery =
   /** アプリを開いている間だけローカル通知で出る。 */
   | { kind: 'local_only'; reason: 'unconfirmed' | 'no_vapid' | 'not_subscribed' }
   /** どの経路でも届かない。 */
-  | { kind: 'none'; reason: 'no_sw' | 'no_registration' };
+  | { kind: 'none'; reason: 'no_sw' | 'no_registration' | 'disabled' };
 
 export async function getNotificationDelivery(): Promise<NotificationDelivery> {
+  // この端末で通知を止めている間は Push もローカル通知も出ない
+  // （offlineNotify.ts の同名の分岐と対応する）。
+  if (storage.getPushDisabled()) return { kind: 'none', reason: 'disabled' };
   // offlineNotify も serviceWorker と registration が無ければ何もできない。
   if (!('serviceWorker' in navigator)) return { kind: 'none', reason: 'no_sw' };
   const registration = await navigator.serviceWorker.getRegistration();
@@ -118,10 +121,15 @@ export async function subscribePush(options: { silent?: boolean } = {}): Promise
 /**
  * この端末の Push 通知を停止する。
  *
- * ブラウザ側の購読解除 → サーバー側の購読行の削除、の順で行う。順序を逆にすると、
- * ブラウザ側の解除が失敗したときに「サーバーは知らないが端末は購読したまま」という
- * 中途半端な状態が残る。この順序なら、サーバー側の削除が失敗しても、その endpoint は
- * 以後 404/410 を返すので cron の失効判定が行を自動的に消す（自己修復する）。
+ * ブラウザ側の購読解除 → サーバー側の購読行の削除、の順で行う。この順序なら、
+ * サーバー側の削除が失敗しても、その endpoint は以後 404/410 を返すので cron の
+ * 失効判定が行を自動的に消す（自己修復する）。
+ *
+ * **2 つの解除は独立に試す。** 同じ try に入れると、ブラウザ側の解除が例外になった
+ * ときにサーバー側の削除を試さないまま抜け、購読行が残ったまま Push が届き続ける
+ * （＝「停止しました」と表示しながら通知が来る）。ブラウザ側だけ失敗した場合に残る
+ * 「サーバー行は消えたが端末の購読は生きている」状態は、送り先を持たないので通知は
+ * 出ない。再開操作は同じ endpoint で購読し直すため、そこから復帰できる。
  *
  * 停止フラグを最初に立てるのは、後続が失敗しても自動再購読だけは確実に止めるため。
  * ブラウザの通知許可（`Notification.permission`）は変更しない（それはブラウザ設定の
@@ -139,26 +147,45 @@ export async function unsubscribePush(): Promise<boolean> {
 
   const syncCode = storage.getSyncCode();
 
+  let subscription: PushSubscription | null = null;
   try {
     const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      showToast('この端末の通知を停止しました', 'success');
-      return true;
-    }
+    subscription = await registration.pushManager.getSubscription();
+  } catch (err) {
+    console.error('Push unsubscribe failed (getSubscription):', err);
+  }
 
-    const { endpoint } = subscription;
-    await subscription.unsubscribe();
-    if (syncCode) {
-      await api.pushUnsubscribe(syncCode, endpoint);
-    }
+  if (!subscription) {
     showToast('この端末の通知を停止しました', 'success');
     return true;
-  } catch (err) {
-    console.error('Push unsubscribe failed:', err);
-    // フラグは立っているので自動再購読は止まる。サーバー側に購読行が残っていても
-    // 失効判定で消えるため、ユーザーに実質的な影響は出ない。
-    showToast('通知を停止しました（サーバー側の解除は次回以降に反映されます）', 'warn');
-    return false;
   }
+
+  const { endpoint } = subscription;
+
+  let browserOk = true;
+  try {
+    await subscription.unsubscribe();
+  } catch (err) {
+    browserOk = false;
+    console.error('Push unsubscribe failed (browser):', err);
+  }
+
+  let serverOk = true;
+  if (syncCode) {
+    try {
+      await api.pushUnsubscribe(syncCode, endpoint);
+    } catch (err) {
+      serverOk = false;
+      console.error('Push unsubscribe failed (server):', err);
+    }
+  }
+
+  if (browserOk && serverOk) {
+    showToast('この端末の通知を停止しました', 'success');
+    return true;
+  }
+  // フラグは立っているので自動再購読は止まり、ローカル通知も出ない。サーバー側に
+  // 購読行が残っていても、ブラウザ側を解除できていれば失効判定で消える。
+  showToast('通知を停止しました（サーバー側の解除は次回以降に反映されます）', 'warn');
+  return false;
 }
