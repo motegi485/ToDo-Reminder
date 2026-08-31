@@ -130,6 +130,16 @@ type Subtask = { id: string; title: string; done: boolean };
 1. 旧 `custom` 繰り返しを `daily` に変換
 2. 旧方式で溜まった完了済み繰り返しタスクを `completions` へ転記して凍結
 
+**変更した行は `updated_at` も進めます**（2026-08-31 に是正）。ここを抜かすと、変更した行は
+push カーソル（`todo_last_pushed_at`）より古いままなのでサーバーへ送られず、一方で
+`migrateCursorSchema()` が起こす全量 pull では同値のサーバー行が勝ちます（pull は
+`local.updated_at > server.updated_at` のときだけローカルを残す）。結果、`custom` → `daily` の変換も
+完了済み繰り返しの凍結も**起動直後に旧 D1 の値へ巻き戻り**、`completions` への転記だけが残る
+非対称な状態になっていました。完了ログの `completed_at` は元の `updated_at` から採るので影響しません。
+
+> **既に v3 へ上がった端末はこの是正では救えません。** 巻き戻りが起きた端末は、そのタスクを
+> 一度編集すれば正しい値が push されます。全体をやり直す場合はローカルの初期化と再取り込みが必要です。
+
 ---
 
 ## サーバー: Cloudflare D1

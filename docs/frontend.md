@@ -203,7 +203,7 @@ sticky hover で「行の 1 タップ目が hover に消える」経路にもな
 
 **メニュー本体は `document.body` へ portal します**（`src/components/ui/AnchoredMenu.tsx`）。
 行は展開アニメーション用の `overflow-hidden` の内側にいるため、その場に `absolute` で置くと
-リストの下端で切り取られます（[P-17](#落とし穴集不変条件ではないが知らないと踏むもの) と同じ事情）。
+リストの下端で切り取られます（[P-17](./invariants.md#落とし穴集不変条件ではないが知らないと踏むもの) と同じ事情）。
 トリガの `getBoundingClientRect()` から `position: fixed` で置き、下に入らなければ上向きに開きます。
 カード面が静止時に `transform` を持たない約束には依存しません（カードの外に出るため）。
 

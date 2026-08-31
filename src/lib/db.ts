@@ -62,7 +62,17 @@ class TodoDB extends Dexie {
             t.due_date = null;
             changed = true;
           }
-          if (changed) await tasksTable.put(t);
+          if (changed) {
+            // **同期対象の列を変えたら updated_at も進める。** ここを抜かすと、
+            // 変更した行は push カーソル（todo_last_pushed_at）より古いままなので
+            // サーバーへ送られず、一方で migrateCursorSchema() が起こす全量 pull で
+            // 同値のサーバー行が勝つ（pull は local > server のときだけローカルを残す）。
+            // 結果、custom→daily の変換も completed 繰り返しの凍結も起動直後に巻き戻り、
+            // 完了ログの転記だけが残る非対称な状態になる。
+            // 完了ログの completed_at は上で元の updated_at から採っているので影響しない。
+            t.updated_at = Date.now();
+            await tasksTable.put(t);
+          }
         }
         if (logs.length > 0) await completionsTable.bulkAdd(logs);
       });
