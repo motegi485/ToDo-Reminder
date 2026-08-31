@@ -5,6 +5,7 @@ import {
   isAllowedPushEndpoint,
   isAllowedSyncCode,
   isValidPushKeys,
+  jsonBodyErrorResponse,
   readJsonObject,
 } from '../lib/guard';
 
@@ -18,10 +19,12 @@ const SYNC_CODE_RE = /^[A-HJ-NP-Z2-9]{12}$/;
  * 旧 users.push_subscription 列は deprecated（読み書きしない）。
  */
 export async function handlePushSubscribe(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonObject<{ sync_code?: unknown; subscription?: unknown }>(request);
-  if (body === null) {
-    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
-  }
+  const parsed = await readJsonObject<{ sync_code?: unknown; subscription?: unknown }>(
+    request,
+    LIMITS.DEFAULT_BODY_MAX_BYTES,
+  );
+  if (!parsed.ok) return jsonBodyErrorResponse(parsed, env, request);
+  const body = parsed.value;
   const syncCode = body.sync_code;
   const subscription = body.subscription;
 
@@ -91,10 +94,12 @@ export async function handlePushSubscribe(request: Request, env: Env): Promise<R
  * 次回起動時の subscribePush が ON CONFLICT で所有者ごと上書きして復旧する。
  */
 export async function handlePushUnsubscribe(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonObject<{ sync_code?: unknown; endpoint?: unknown }>(request);
-  if (body === null) {
-    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
-  }
+  const parsed = await readJsonObject<{ sync_code?: unknown; endpoint?: unknown }>(
+    request,
+    LIMITS.DEFAULT_BODY_MAX_BYTES,
+  );
+  if (!parsed.ok) return jsonBodyErrorResponse(parsed, env, request);
+  const body = parsed.value;
   const syncCode = body.sync_code;
   const endpoint = body.endpoint;
 

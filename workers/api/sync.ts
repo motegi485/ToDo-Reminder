@@ -1,7 +1,7 @@
 import type { Env } from '../lib/cors';
 import { jsonResponse } from '../lib/cors';
 import { LIMITS } from '../lib/constants';
-import { isAllowedSyncCode, readJsonObject } from '../lib/guard';
+import { isAllowedSyncCode, jsonBodyErrorResponse, readJsonObject } from '../lib/guard';
 import { applyLWW, rowToPayload } from '../lib/lww';
 import type { TaskPayload } from '../lib/lww';
 
@@ -18,10 +18,12 @@ async function upsertUser(db: D1Database, syncCode: string): Promise<void> {
 }
 
 export async function handleSyncPull(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonObject<{ sync_code?: unknown; last_synced_at?: unknown }>(request);
-  if (body === null) {
-    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
-  }
+  const parsed = await readJsonObject<{ sync_code?: unknown; last_synced_at?: unknown }>(
+    request,
+    LIMITS.DEFAULT_BODY_MAX_BYTES,
+  );
+  if (!parsed.ok) return jsonBodyErrorResponse(parsed, env, request);
+  const body = parsed.value;
   const syncCode = body.sync_code;
   const lastSyncedAt = body.last_synced_at;
 
@@ -60,14 +62,13 @@ export async function handleSyncPull(request: Request, env: Env): Promise<Respon
 }
 
 export async function handleSyncPush(request: Request, env: Env): Promise<Response> {
-  const body = await readJsonObject<{
+  const parsed = await readJsonObject<{
     sync_code?: unknown;
     tasks?: unknown;
     previous_sync_code?: unknown;
-  }>(request);
-  if (body === null) {
-    return jsonResponse({ error: 'invalid JSON body' }, env, request, 400);
-  }
+  }>(request, LIMITS.SYNC_PUSH_BODY_MAX_BYTES);
+  if (!parsed.ok) return jsonBodyErrorResponse(parsed, env, request);
+  const body = parsed.value;
   const syncCode = body.sync_code;
   const tasks = body.tasks;
   const previousSyncCode = body.previous_sync_code;

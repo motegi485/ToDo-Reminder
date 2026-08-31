@@ -84,6 +84,32 @@ export const LIMITS = {
   NOTIFICATION_BODY_MAX_LENGTH: 120,
 
   /**
+   * `/api/sync/push` のリクエスト本文のバイト上限。
+   *
+   * 上限が無いと、同期コードの検証も allowlist も通らない第三者が、**認可の前に**
+   * 巨大な JSON を `request.json()` でメモリへ展開させられる（Cloudflare の
+   * リクエスト本文上限は 100MB、isolate のメモリは 128MB）。
+   *
+   * 値の根拠（サーバー自身の列上限から算出、2026-08-31 時点のローカル計算）:
+   *   1 タスク最悪 = 構造 300 + id 64 + sync_code 12 + (title 200 + project_name 30
+   *   + due_date 32 + color 32 + kind 16 + memo_type 32 + memo_value 500
+   *   + RECURRENCE_RULE_MAX_BYTES 512 + SUBTASKS_MAX_BYTES 6144) × 6
+   *   + reminder_time 30 + 数値 7 列 × 25 ≒ 44.5 KiB
+   *   （×6 は「1 コード単位が JSON の `\uXXXX` エスケープで最大 6 バイトになる」最悪ケース）
+   *   × MAX_TASKS_PER_PUSH(40) ≒ 1.74 MiB
+   * ここを下回る値にすると、**API 契約上正しい最大入力をサーバー自身が拒否する**
+   * （I-9 と同じ考え方）。約 2.3 倍の余裕を見て 4 MiB にする。
+   */
+  SYNC_PUSH_BODY_MAX_BYTES: 4 * 1024 * 1024,
+
+  /**
+   * push 以外（pull / push subscribe / push unsubscribe）の本文バイト上限。
+   * 最大の subscribe でも `SUBSCRIPTION_JSON_MAX_BYTES`(4096) × 6 = 24 KiB なので
+   * 32 KiB で足りる。pull と unsubscribe はさらに小さい。
+   */
+  DEFAULT_BODY_MAX_BYTES: 32 * 1024,
+
+  /**
    * 取りこぼし回収（stale）で 1 回の cron が前進させる行数の上限。
    * D1 Free は「50 クエリ / Worker 呼び出し」なので、候補処理ぶんを残して
    * ここを絞らないと 1 回の cron が上限を超えて丸ごと失敗する。
