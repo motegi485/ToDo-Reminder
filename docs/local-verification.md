@@ -98,6 +98,29 @@ Cloudflare D1 では `db.batch()` 内の各 statement に個別のクエリ上�
 
 固定の「安全な件数」や過去の性能値を別環境に一般化しません。変更ごとに、対象 revision、シナリオ、件数、観測方法、結果、未確認事項を残します。
 
+## LWW と列互換の隔離検証（node:sqlite）
+
+`workers/lib/lww.ts` は同期の中核で、[I-3b](./invariants.md#i-3b-lww-の採否判定は書き込みと同じ-1-文の中で行う)・[I-15](./invariants.md#i-15-previous_sync_code-の申告がなければ行は移動しない)・[I-17](./invariants.md#i-17-push-は列単位で互換を保つキー省略は既存値を保持する) が同じ 1 文に同居します。ここを変えるときは、実 SQLite に実 migration を当てて実 `applyLWW` を走らせて確認します（[P-7](./invariants.md#落とし穴集不変条件ではないが知らないと踏むもの)）。本番にも Cloudflare 資格情報にも触れません。
+
+**組み方**（2026-08-31 に実施した方法。使い捨てのコードは作業ディレクトリの外に置く）:
+
+1. Node 同梱の `node:sqlite`（`DatabaseSync`）の上に、`D1Database` の薄いシムを書く。`applyLWW` が使うのは `prepare` / `bind` / `run` / `all` / `batch` だけ。`batch` は実 D1 と同じくトランザクションで囲う
+2. `migrations/` を番号順に `exec()` で適用する。`tasks.sync_code` は `users` への FK なので、`handleSyncPush` が行う users の upsert を先に代替しておく
+3. `npx esbuild workers/lib/lww.ts --bundle --format=esm --platform=neutral` で実ソースをそのまま読み込む
+4. 変更前の挙動と比べる。`git show HEAD:workers/lib/lww.ts` を同じ手順で束ねれば、**そのテストが実際に不具合を捕まえることを確認**できる
+
+**確認する項目**:
+
+| 区分 | 内容 |
+|---|---|
+| 列互換 | 旧世代の形（`git show <commit>^:src/lib/taskRepo.ts` の `buildTask` が返すキー集合）で編集を push し、その世代が知らない列が残ること。明示 `null` はクリアされること。既存行が無ければ省略列が `NULL` で INSERT されること |
+| LWW | 古い `updated_at` は `conflicts`、同値は受理、同一リクエスト内の重複 id は最新へ畳まれること |
+| テナント分離 | 別コードからの書き込みは `skipped`、`previous_sync_code` を申告したときだけ移動すること |
+| カーソル | `server_seq` が単調増加すること |
+| 検証 | `isValidPayload` を通らない行が `invalid` としてスキップされること |
+
+型レベルの防御（`COLUMN_KIND` の網羅性）は、`TaskRow` に列を 1 つ足したコピーへ `tsc` をかけて、振り分けを忘れると落ちることを確認します。
+
 ## 検証記録の最小形式
 
 PR、Issue、または組織の変更記録には、少なくとも次を残します。

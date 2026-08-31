@@ -44,8 +44,63 @@ interface LWWResult {
   invalid: number;
 }
 
-function payloadToRow(task: TaskPayload): TaskRow {
-  return {
+/**
+ * UPSERT での列の扱い（[I-17] push は列単位で互換を保つ）。
+ *
+ *  - `'required'` … 全世代のクライアントが必ず送る列。`isValidPayload` が非 null を
+ *    要求するので、常に `excluded` で上書きしてよい。
+ *  - `'optional'` … 省略され得る列。リクエスト JSON にキーが無ければ UPDATE の SET に
+ *    載せない（= サーバーの既存値をそのまま残す）。**明示的な `null` はクリアの意味**
+ *    として通す。JSON には `undefined` が無いので、キーの有無と省略の有無は厳密に一致する。
+ *
+ * この区別が無いと、旧バージョンのクライアントが「知らない列を省略しただけ」で
+ * `payloadToRow` の `?? null` が `NULL` に変換し、UPSERT が全列を無条件上書きして
+ * サブタスク・メモ・色を全端末から消してしまう（新しい `updated_at` ごと LWW で伝播する）。
+ *
+ * **`TaskRow` に列を足したら、ここへ振り分けるまでコンパイルが通らない**
+ * （`Record` が `id` 以外の全キーを要求する）。INSERT の列順・bind 順・SET 句は
+ * すべてこの定義から導出するので、手書きの並びがずれることもない。
+ */
+const COLUMN_KIND: Record<Exclude<keyof TaskRow, 'id'>, 'required' | 'optional'> = {
+  sync_code: 'required',
+  title: 'required',
+  type: 'required',
+  status: 'required',
+  created_at: 'required',
+  updated_at: 'required',
+  current_value: 'optional',
+  target_value: 'optional',
+  due_date: 'optional',
+  reminder_offset: 'optional',
+  reminder_time: 'optional',
+  recurrence_rule: 'optional',
+  project_name: 'optional',
+  sort_order: 'optional',
+  tz_offset: 'optional',
+  color: 'optional',
+  kind: 'optional',
+  memo_type: 'optional',
+  memo_value: 'optional',
+  subtasks: 'optional',
+};
+
+type DataColumn = Exclude<keyof TaskRow, 'id'>;
+
+// Object.keys は文字列キーの挿入順を保つ（列名はいずれも数値形ではない）ため、
+// 列順は上のリテラルの並びで決定的になる。
+const DATA_COLUMNS = Object.keys(COLUMN_KIND) as DataColumn[];
+const OPTIONAL_COLUMNS = DATA_COLUMNS.filter((c) => COLUMN_KIND[c] === 'optional');
+/** INSERT の列順 = bind 順。`server_seq` だけは採番式なので別に足す。 */
+const INSERT_COLUMNS: Array<keyof TaskRow> = ['id', ...DATA_COLUMNS];
+
+interface UpsertRow {
+  row: TaskRow;
+  /** リクエスト JSON に実際にキーがあった列。無い列は UPDATE の SET から外す。 */
+  present: ReadonlySet<DataColumn>;
+}
+
+function payloadToRow(task: TaskPayload): UpsertRow {
+  const row: TaskRow = {
     id: task.id,
     sync_code: task.sync_code,
     title: task.title,
@@ -69,6 +124,13 @@ function payloadToRow(task: TaskPayload): TaskRow {
     memo_value: task.memo_value ?? null,
     subtasks: task.subtasks != null ? JSON.stringify(task.subtasks) : null,
   };
+  // 省略された列も row では null にしておく（新規行の INSERT ではそれが正しい値）。
+  // 既存行を更新するときだけ、下の present を見て SET から外す。
+  const present = new Set<DataColumn>();
+  for (const c of DATA_COLUMNS) {
+    if (Object.prototype.hasOwnProperty.call(task, c)) present.add(c);
+  }
+  return { row, present };
 }
 
 export function rowToPayload(row: Record<string, unknown>): TaskPayload {
@@ -250,6 +312,16 @@ export async function applyLWW(
   }
   const deduped = [...byId.values()];
 
+  // 旧バージョンのクライアントが列を省略していたら 1 行だけ記録する（**列名のみ**。値は出さない）。
+  // I-17 により省略列は既存値が残るのでデータは壊れないが、どの世代がまだ動いているかは
+  // `wrangler tail` で把握しておきたい（メモやサブタスクの導入判断に効く）。
+  const omitted = OPTIONAL_COLUMNS.filter((c) =>
+    deduped.some((t) => !Object.prototype.hasOwnProperty.call(t, c)),
+  );
+  if (omitted.length > 0) {
+    console.warn(`[sync] client omitted column(s): ${omitted.join(',')}`);
+  }
+
   // 既存行の updated_at と所有コードを取得（バインド上限のためチャンク分割）。
   // これは応答の内訳（conflicts / skipped）を作るための参考値で、書き込みの可否そのものは
   // 下の条件付き UPSERT が SQL 内で原子的に判定する（この SELECT と書き込みの間に
@@ -266,7 +338,7 @@ export async function applyLWW(
     }
   }
 
-  const toUpsert: TaskRow[] = [];
+  const toUpsert: UpsertRow[] = [];
   for (const task of deduped) {
     const server = serverMap.get(task.id);
     // テナント分離: 既存行が別の同期コードの所有なら、previous_sync_code の申告が
@@ -308,63 +380,36 @@ export async function applyLWW(
     // 割り込みが入り得なくなる。条件は既存の JS 判定と同じ意味にする:
     //   - updated_at が同値以上のときだけ上書き（同値受理は従来どおり）
     //   - 既存行の所有コードが自コード、または申告された旧コードのときだけ書き込む（I-15）
-    const buildStmt = (row: TaskRow): D1PreparedStatement =>
+    // INSERT の列並びと VALUES のプレースホルダは列定義から作る。手書きの並びと
+    // bind 配列を突き合わせる必要が無くなるので、列を足したときの順序ずれが起きない。
+    const insertColumnList = INSERT_COLUMNS.join(', ');
+    const insertPlaceholders = INSERT_COLUMNS.map(() => '?').join(',');
+
+    /**
+     * UPDATE 側で代入する列。`required` は常に、`optional` は**その要求に実際に
+     * キーがあった場合だけ**載せる。載せなかった列は既存値がそのまま残る（I-17）。
+     * `required` が必ず含まれるので、SET 句が空になることはない。
+     */
+    const updateAssignments = (present: ReadonlySet<DataColumn>): string =>
+      DATA_COLUMNS.filter((c) => COLUMN_KIND[c] === 'required' || present.has(c))
+        .map((c) => `${c} = excluded.${c}`)
+        .concat('server_seq = excluded.server_seq')
+        .join(',\n             ');
+
+    const buildStmt = ({ row, present }: UpsertRow): D1PreparedStatement =>
       db
         .prepare(
           `INSERT INTO tasks
-           (id, sync_code, title, type, status, current_value, target_value,
-            due_date, reminder_offset, reminder_time, recurrence_rule,
-            project_name, sort_order, created_at, updated_at, tz_offset, color,
-            kind, memo_type, memo_value, subtasks, server_seq)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+           (${insertColumnList}, server_seq)
+           VALUES (${insertPlaceholders},
                    MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?))
            ON CONFLICT(id) DO UPDATE SET
-             sync_code       = excluded.sync_code,
-             title           = excluded.title,
-             type            = excluded.type,
-             status          = excluded.status,
-             current_value   = excluded.current_value,
-             target_value    = excluded.target_value,
-             due_date        = excluded.due_date,
-             reminder_offset = excluded.reminder_offset,
-             reminder_time   = excluded.reminder_time,
-             recurrence_rule = excluded.recurrence_rule,
-             project_name    = excluded.project_name,
-             sort_order      = excluded.sort_order,
-             created_at      = excluded.created_at,
-             updated_at      = excluded.updated_at,
-             tz_offset       = excluded.tz_offset,
-             color           = excluded.color,
-             kind            = excluded.kind,
-             memo_type       = excluded.memo_type,
-             memo_value      = excluded.memo_value,
-             subtasks        = excluded.subtasks,
-             server_seq      = excluded.server_seq
+             ${updateAssignments(present)}
            WHERE excluded.updated_at >= tasks.updated_at
              AND (tasks.sync_code = excluded.sync_code OR tasks.sync_code = ?)`,
         )
         .bind(
-          row.id,
-          row.sync_code,
-          row.title,
-          row.type,
-          row.status,
-          row.current_value,
-          row.target_value,
-          row.due_date,
-          row.reminder_offset,
-          row.reminder_time,
-          row.recurrence_rule,
-          row.project_name,
-          row.sort_order,
-          row.created_at,
-          row.updated_at,
-          row.tz_offset,
-          row.color,
-          row.kind,
-          row.memo_type,
-          row.memo_value,
-          row.subtasks,
+          ...INSERT_COLUMNS.map((c) => row[c]),
           // ここから下は server_seq の採番用。列の bind より必ず後ろに置くこと。
           syncCode,
           nowMs,
@@ -377,7 +422,7 @@ export async function applyLWW(
     // upsert は冪等（クライアントは失敗時に全量を再送する）ため整合性は崩れない。
     for (const rows of chunk(toUpsert, CHUNK_SIZE)) {
       const batchResults = await db.batch(rows.map(buildStmt));
-      rows.forEach((row, i) => {
+      rows.forEach(({ row }, i) => {
         // accepted は「送った件数」ではなく **実際に書き込めた件数** を返す。
         // 同期コード切替（switchSyncCode）は、全件がサーバーへ移ったことを確認してから
         // ローカルを消す判断に使うため、ここが楽観値だと保全判定が成立しない。

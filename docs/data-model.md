@@ -267,12 +267,17 @@ CREATE INDEX idx_push_subscriptions_sync_code ON push_subscriptions(sync_code);
 ### 列を追加する手順
 
 1. `migrations/00NN_add_xxx.sql` を作る（`ALTER TABLE tasks ADD COLUMN ...`。既存行は NULL になる）
-2. `workers/lib/lww.ts` の `TaskRow` / `payloadToRow` / `rowToPayload` / INSERT 文に列を足す
-3. **`isValidPayload` に型・長さの検証を足す**（[invariants.md](./invariants.md#i-7-入力検証は拒否ではなくスキップ)）
-4. 上限値を使うなら `workers/lib/constants.ts` と `src/lib/constants.ts` の**両方**に足す
-5. `src/types/index.ts` の `Task` 型と Dexie のスキーマ（必要ならバージョンを上げる）を更新
-6. `docs/data-model.md`（このファイル）を更新
-7. `--remote` 適用 → `wrangler deploy` → Pages デプロイ の順で反映
+2. `workers/lib/lww.ts` の `TaskRow` / `payloadToRow` / `rowToPayload` に列を足す
+3. **同じファイルの `COLUMN_KIND` に振り分ける。** 新しく足す列は必ず `'optional'`
+   （旧クライアントが省略しても既存値が残る側。[invariants.md I-17](./invariants.md#i-17-push-は列単位で互換を保つキー省略は既存値を保持する)）。
+   `Record<Exclude<keyof TaskRow, 'id'>, …>` なので**振り分けるまでコンパイルが通りません**。
+   INSERT の列順・bind 順・SET 句はここから導出されるので、SQL を手で直す必要はありません
+4. **`isValidPayload` に型・長さの検証を足す**（[invariants.md](./invariants.md#i-7-入力検証は拒否ではなくスキップ)）
+5. 上限値を使うなら `workers/lib/constants.ts` と `src/lib/constants.ts` の**両方**に足す
+6. `src/types/index.ts` の `Task` 型と Dexie のスキーマ（必要ならバージョンを上げる）を更新。
+   Dexie の upgrade で同期対象の列を変えるなら `updated_at` も進める（下の「v3 マイグレーション」参照）
+7. `docs/data-model.md`（このファイル）を更新
+8. `--remote` 適用 → `wrangler deploy` → Pages デプロイ の順で反映
 
 > **CHECK 制約を付けるかは慎重に。** 値の集合が将来増えるものには付けないこと（`0005` のコメント参照）。
 

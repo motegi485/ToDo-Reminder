@@ -211,6 +211,54 @@ MAX((SELECT COALESCE(MAX(server_seq), 0) + 1 FROM tasks WHERE sync_code = ?), ?)
 `updated_at` を更新するまで自動再送されません。同期コード切替では `invalid > 0` を失敗として扱い、
 ローカルを消しません。
 
+### 列追加と旧クライアントの互換
+
+**push は列単位で互換を保ちます**（[I-17](./invariants.md#i-17-push-は列単位で互換を保つキー省略は既存値を保持する)）。
+
+| 送り方 | 意味 |
+|---|---|
+| キーが無い | その列は触らない（サーバーの既存値をそのまま残す） |
+| キーがあり値が `null` | その列を `NULL` にクリアする |
+
+UPSERT の `ON CONFLICT DO UPDATE SET` には、その要求に実際にキーがあった列だけを並べます。
+列の振り分けは `workers/lib/lww.ts` の `COLUMN_KIND` にあり、`TaskRow` に列を足したら
+振り分けるまでコンパイルが通りません。INSERT の列順・bind 順・SET 句はすべてこの定義から導出されます。
+
+**なぜこれが要るか。** 列を足すたびに、その列を知らない旧バージョンのクライアントが生まれます。
+PWA はアプリを開いて Service Worker が更新されるまで古い版のまま動くので、
+「開きっぱなしのタブ」「久しぶりに開いた端末」が普通に存在します。
+
+各世代が送らない列（`git show <commit>^:src/lib/taskRepo.ts` で確認、2026-08-31）:
+
+| 世代（この commit の 1 つ前） | 送らない列 |
+|---|---|
+| `1a136a9` 通知機能 前 | `tz_offset` / `color` / `kind` / `memo_type` / `memo_value` / `subtasks` |
+| `9996a42` 色 前 | `color` / `kind` / `memo_type` / `memo_value` / `subtasks` |
+| `21e4ced` メモ 前 | `kind` / `memo_type` / `memo_value` / `subtasks` |
+| `b4442cb` サブタスク 前 | `subtasks` |
+
+**2026-08-31 に是正**: 従来は `payloadToRow` の `?? null` が省略キーを `NULL` に変換し、UPSERT が
+全列を無条件で上書きしていました。端末 A（最新版）でサブタスクを 3 件足したタスクを、端末 B
+（サブタスク実装前のビルドのまま）で**タイトルだけ直す**と、サーバーで `subtasks = NULL`・
+`updated_at` は B の新しい値になり、LWW で全端末へ伝播して 3 件が消えていました。
+[known-limitations.md](./known-limitations.md) の「旧バージョンの端末にメモが中身のないタスクとして
+出る」は表示の話で、これとは別の問題です。
+
+**列を落とすのはフォーム経由の保存だけでした。** push は Dexie の行オブジェクトをそのまま送るため、
+pull で受け取った未知の列は通常そのまま送り返されます。列挙してオブジェクトを再構築するのは
+`buildTask()` と `buildMemo()` だけで、他の変更関数（`completeTask` / `renameProject` /
+`toggleSubtask` など）は `{ ...existing }` のスプレッドなので未知の列を保持します。
+現在は前者も先頭で `...base` を展開するため、**今日の版が将来「旧クライアント」になっても
+同じ問題は起きません**（サーバー側の防御と二重になります）。
+
+なお、旧版が送る**余分なキー**（`1a136a9^` の `next_generated` / `missed_due_date`）は、
+`payloadToRow` が既知の列だけを拾うので元から無害です。
+
+**採らなかった案**: API schema version と最低対応版を決めて古すぎる版を拒否する方法は、
+旧端末が理由も分からないまま送信不能（実質 read-only）になり、その端末の編集が取り残されるため
+採りませんでした。列単位で解決できない変更が将来必要になったときに、あらためて検討します。
+省略された列名は Worker のログに 1 行出るので、旧版の稼働は `wrangler tail` で把握できます。
+
 ---
 
 ## チャンク分割
