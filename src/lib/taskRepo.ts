@@ -638,7 +638,15 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
       task = await markCompleted({ ...existing, current_value: sanitized }, now);
     } else {
       task = { ...existing, current_value: sanitized, updated_at: now };
+      // 完了済みを目標未満へ下げたら未完了へ戻す。自動完了のちょうど逆操作で、
+      // フォームから同じ編集をしたとき（updateTask）と扱いを揃える。
+      // カードの直接編集は完了済みでも有効なので、ここが抜けていると
+      // 「completed なのに 3 / 10」の行ができ、完了ログも残ったままになる。
+      const revived = existing.status === 'completed' && sanitized < existing.target_value;
+      if (revived) task.status = 'active';
       await db.tasks.put(task);
+      // 完了が退いたなら完了ログも対にして取り下げる（docs/frontend.md の 4 経路のひとつ）。
+      if (revived) await removeLatestCompletion(id);
     }
   });
   if (task) scheduleSync();
