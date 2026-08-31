@@ -86,6 +86,14 @@ function buildTask(input: TaskInput, base?: Task): Task {
   const targetValue = isQuantitative ? (input.target_value ?? 1) : null;
 
   return {
+    // **この版が知らない列を落とさない。** 既知の列はこの下で全て明示的に上書きするので
+    // 挙動は変わらず、将来サーバー側に足された列だけが素通しで残る。
+    //
+    // ここを抜かすと、いずれこの版が「旧クライアント」になったとき、フォームからの保存が
+    // 未知の列をリクエストから落とし、サーバーの [I-17]（キー省略 = 既存値保持）に
+    // 頼りきりになる。同期は行オブジェクトをそのまま送るので、他の変更関数のように
+    // `{ ...existing }` で組み立てていれば列は勝手に往復する（docs/sync.md）。
+    ...base,
     id: base?.id ?? generateId(),
     sync_code: base?.sync_code ?? syncCode(),
     title: input.title.trim(),
