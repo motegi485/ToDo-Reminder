@@ -23,6 +23,11 @@ export async function fireDueLocalNotifications(): Promise<number> {
   if (!('serviceWorker' in navigator)) return 0;
   if (typeof Notification === 'undefined') return 0;
   if (Notification.permission !== 'granted') return 0;
+  // 「この端末の通知を停止」は Push だけでなくローカル通知にも効かせる。
+  // 停止に成功した端末ほどブラウザ購読が消えるため、下の「購読があれば Push に委ねる」
+  // 判定をすり抜けてここが発火する（＝正常に停止できた端末ほど通知が出る）。
+  // 設定画面は「この端末では通知を停止しています」と出しているので、そのままでは嘘になる。
+  if (storage.getPushDisabled()) return 0;
   if (inFlight) return 0;
   inFlight = true;
   try {

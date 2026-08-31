@@ -150,10 +150,8 @@ export async function handleNotifyCron(
         .all<SubscriptionRow>();
     }),
   );
-  let totalSubs = 0;
   for (const subs of subsChunks) {
     for (const s of subs.results) {
-      totalSubs += 1;
       const list = subsByCode.get(s.sync_code);
       if (list) list.push(s);
       else subsByCode.set(s.sync_code, [s]);
@@ -165,8 +163,18 @@ export async function handleNotifyCron(
   // 共有する他タスクが同時に処理中の場合、古いスナップショット（subsByCode）
   // のままその endpoint へ二重に送信してしまう。
   const expiredEndpoints = new Set<string>();
-  // 後段の失効削除に必要な文数（最悪ケース = 全購読が失効）を先に取り置く。
-  const expiredReserve = Math.ceil(totalSubs / CHUNK_SIZE);
+
+  /**
+   * 後段の失効削除に必要な文数。**送信した購読しか失効判定に入らない**ので
+   * （下の `result === 'expired'` は `subs.map` の結果だけを見る）、上限は
+   * 「実際に送信する購読数」から取る。
+   *
+   * かつては取得した全購読数から取っていたため、79 コード × 20 購読のような
+   * 構成では `expiredReserve = 40` となり、`d1Used(4) + 2 + 40 > 45` で
+   * **失効が 1 件も無くても全候補を毎分見送り続ける**境界があった。
+   * fetchUsed は CRON_FETCH_BUDGET(45) を超えないので、この式なら予約は最大 2 文。
+   */
+  const expiredReserveFor = (fetchCount: number): number => Math.ceil(fetchCount / CHUNK_SIZE);
 
   let deferred = 0;
 
@@ -197,15 +205,16 @@ export async function handleNotifyCron(
           // 各コールバックを最初の await まで同期的に実行するため、予約の順序は候補の
           // 並び順で決定的になり、並行実行でも取り合いにならない。
           // 1 候補あたりの D1 は claim INSERT + (advance UPDATE または claim DELETE) の 2 文。
+          const nextFetchUsed = fetchUsed + subs.length;
           if (
-            d1Used + 2 + expiredReserve > CRON_D1_BUDGET ||
-            fetchUsed + subs.length > CRON_FETCH_BUDGET
+            d1Used + 2 + expiredReserveFor(nextFetchUsed) > CRON_D1_BUDGET ||
+            nextFetchUsed > CRON_FETCH_BUDGET
           ) {
             deferred += 1;
             return; // claim を取らない = この候補は次分以降の実行に残る
           }
           d1Used += 2;
-          fetchUsed += subs.length;
+          fetchUsed = nextFetchUsed;
 
           // 冪等ガード: (task_id, reminder_time) を原子的に予約し、初回だけ送信する。
           // cron の重複起動や窓の重なりが起きても二度送らない（at-most-once）。
@@ -311,10 +320,13 @@ export async function handleNotifyCron(
   // D1 Free の「50 クエリ / Worker 呼び出し」を超えて cron 全体が毎分失敗する。
   // 上限は STALE_ADVANCE_LIMIT と「この実行の残予算」の小さいほうにする（候補処理が
   // 予算を使い切っていれば stale クエリ自体を発行しない）。
+  // 候補の予算予約は `candidates.map()` の同期部分で終わっている（各コールバックは
+  // 最初の await = claim INSERT までを同期実行する）ので、ここでの d1Used / fetchUsed は
+  // この実行の確定値。
   const staleLimit = Math.min(
     LIMITS.STALE_ADVANCE_LIMIT,
     // -1 は stale クエリ自身の 1 文ぶん。1 行あたりの更新は最大 1 文。
-    Math.max(0, CRON_D1_BUDGET - d1Used - expiredReserve - 1),
+    Math.max(0, CRON_D1_BUDGET - d1Used - expiredReserveFor(fetchUsed) - 1),
   );
   if (staleLimit === 0) {
     console.warn('[notify] stale recovery skipped this run (budget)');
