@@ -31,7 +31,8 @@ export const CONSTANTS = {
   // フィードバック用 Google フォームの URL（未設定の間はボタンを無効化）。
   // クエリは付けない: `?usp=publish-editor` はフォームの編集画面から「公開」した
   // ときに付く内部パラメータで、共有用の正規 URL ではない。
-  FEEDBACK_FORM_URL: 'https://docs.google.com/forms/d/e/xxxxxxxxxxxxxxxxxxxxxxxxxxxx/viewform',
+  // 例: 'https://docs.google.com/forms/d/e/xxxxxxxxxxxxxxxxxxxxxxxxxxxx/viewform'
+  FEEDBACK_FORM_URL: '',
 } as const;
 
 export const REMINDER_PRESETS = [
