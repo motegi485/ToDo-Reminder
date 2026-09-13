@@ -467,7 +467,7 @@ export function TaskCard({
           if (e.animationName === 'task-fly-in') setFlyIn(false);
         }}
         className={[
-          'relative flex items-start gap-3 rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4',
+          'relative rounded-[14px] bg-white dark:bg-[#1c1c1e] py-3.5 px-4',
           flyIn ? 'task-fly-in' : '',
         ].join(' ')}
       >
@@ -482,269 +482,286 @@ export function TaskCard({
             className="absolute inset-0 z-10 rounded-[14px]"
           />
         )}
-        {/* 完了タスクはチェック＋本文だけを薄くする。メニュー／ダイアログには波及させない */}
-        <div
-          className={[
-            'flex items-start gap-3 min-w-0 flex-1 transition-opacity duration-300',
-            completed ? 'opacity-60' : 'opacity-100',
-          ].join(' ')}
-        >
-          {/* 丸チェックボックス（アクセント色） */}
-          <button
-            type="button"
-            aria-label={showChecked ? '未完了に戻す' : '完了にする'}
-            onTouchStart={stopCardDrag}
-            onClick={handleCheck}
-            onAnimationEnd={() => setAnimateCheck(false)}
+        {/* 1 行目: チェック・本文・2/4・期限ピル・メニュー。サブタスクのチェックリストは
+            この行の外（下）に置く。本文列は右側の 2/4・期限ピル・メニューに幅を譲るため、
+            390px 幅で期限つきのタスクだと 100px 程度まで狭くなり、その列にチェックリストを
+            入れると 1〜2 文字ごとに折り返して読めない。 */}
+        <div className="flex items-start gap-3">
+          {/* 完了タスクはチェック＋本文だけを薄くする。メニュー／ダイアログには波及させない */}
+          <div
             className={[
-              'relative mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
-              // 視覚は 24px のまま、当たり判定だけ擬似要素で広げる（誤タップ対策）
-              "before:absolute before:-inset-2 before:rounded-full before:content-['']",
-              'transition-[background-color,border-color,transform] active:scale-90',
-              showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
-              animateCheck ? 'task-cb-pop' : '',
+              'flex items-start gap-3 min-w-0 flex-1 transition-opacity duration-300',
+              completed ? 'opacity-60' : 'opacity-100',
             ].join(' ')}
           >
-            {showChecked && (
-              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
-                <path
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 8.5l3 3 7-7"
-                  className={animateCheck ? 'task-cb-draw' : undefined}
-                  style={animateCheck ? { strokeDasharray: 22, strokeDashoffset: 22 } : undefined}
-                />
-              </svg>
-            )}
-          </button>
-
-          {/* 本文 */}
-          <div className="min-w-0 flex-1">
-            <div
+            {/* 丸チェックボックス（アクセント色） */}
+            <button
+              type="button"
+              aria-label={showChecked ? '未完了に戻す' : '完了にする'}
+              onTouchStart={stopCardDrag}
+              onClick={handleCheck}
+              onAnimationEnd={() => setAnimateCheck(false)}
               className={[
-                'text-[0.9375rem] leading-snug break-words',
-                completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
+                'relative mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center',
+                // 視覚は 24px のまま、当たり判定だけ擬似要素で広げる（誤タップ対策）
+                "before:absolute before:-inset-2 before:rounded-full before:content-['']",
+                'transition-[background-color,border-color,transform] active:scale-90',
+                showChecked ? `${accent.bg} border-transparent` : `${accent.border} bg-transparent`,
+                animateCheck ? 'task-cb-pop' : '',
               ].join(' ')}
             >
-              {task.title}
-            </div>
+              {showChecked && (
+                <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 text-white">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3 8.5l3 3 7-7"
+                    className={animateCheck ? 'task-cb-draw' : undefined}
+                    style={animateCheck ? { strokeDasharray: 22, strokeDashoffset: 22 } : undefined}
+                  />
+                </svg>
+              )}
+            </button>
 
-            {/* サブタスクの進捗バー。件数（2/4）はカード右上に置くため、ここは細いバーだけ。
-                定量タスクのバー（h-1.5・数値がバーの上）と高さと数値の位置で見分けられるようにする
-                （サブタスクは simple 限定なので同じカードに 2 本並ぶことはないが、一覧では混在する）。 */}
-            {subtasks && (
-              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                <div
-                  className={`h-full ${accent.bg} transition-[width] duration-300 ease-out motion-reduce:transition-none`}
-                  style={{ width: `${(doneCount / subtasks.length) * 100}%` }}
-                />
-              </div>
-            )}
-
-            {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は右端の期限ピルへ一本化した。 */}
-            {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
-
-            {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
-            {(recurrenceLabel || reminderLabel) && (
-              <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.75rem] text-slate-500 dark:text-slate-400">
-                {recurrenceLabel && (
-                  <span className="inline-flex items-center gap-1">
-                    <Repeat aria-hidden className="h-3 w-3" />
-                    {recurrenceLabel}
-                  </span>
-                )}
-                {recurrenceLabel && reminderLabel && <span aria-hidden>·</span>}
-                {reminderLabel && (
-                  <span className="inline-flex items-center gap-1">
-                    <Bell aria-hidden className="h-3 w-3" />
-                    <span className="sr-only">リマインダー </span>
-                    {reminderLabel}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* プロジェクトラベル（従来どおり） */}
-            {showProjectLabel && task.project_name && (
-              <div className="mt-0.5 text-[0.6875rem] text-slate-400">{task.project_name}</div>
-            )}
-
-            {/* サブタスクのチェックリスト。
-                grid-template-rows の 0fr→1fr で、中身の高さを測らずに開閉できる。
-                畳んだ状態でも DOM に残すことで、閉じる側もアニメーションする。
-                並び順の変化ではないため useFlipReorder（listRef 直下の data-task-id を見る）
-                は走らず、下のカードはこの高さ変化に自然に追従する。 */}
-            {subtasks && (
+            {/* 本文 */}
+            <div className="min-w-0 flex-1">
               <div
                 className={[
-                  'grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none',
-                  expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+                  'text-[0.9375rem] leading-snug break-words',
+                  completed ? 'text-slate-400 dark:text-slate-500' : 'text-slate-900 dark:text-slate-100',
                 ].join(' ')}
               >
-                <div className="overflow-hidden">
-                  {/* 畳んでいる間も DOM に残る（閉じる側もアニメーションさせるため）ので、
-                      expanded を渡して中のボタンを tab 順から外させる。 */}
-                  <SubtaskList
-                    taskId={task.id}
-                    subtasks={subtasks}
-                    accent={accent}
-                    expanded={expanded}
+                {task.title}
+              </div>
+
+              {/* サブタスクの進捗バー。件数（2/4）はカード右上に置くため、ここは細いバーだけ。
+                  定量タスクのバー（h-1.5・数値がバーの上）と高さと数値の位置で見分けられるようにする
+                  （サブタスクは simple 限定なので同じカードに 2 本並ぶことはないが、一覧では混在する）。 */}
+              {subtasks && (
+                <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                  <div
+                    className={`h-full ${accent.bg} transition-[width] duration-300 ease-out motion-reduce:transition-none`}
+                    style={{ width: `${(doneCount / subtasks.length) * 100}%` }}
                   />
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
+              )}
 
-        {/* サブタスクの進捗と開閉。**展開の導線はこのボタンだけにする。**
-            カード面のタップはスワイプ（横）と長押しドラッグ（@dnd-kit）の起点を兼ねており、
-            そこへ展開を足すと、スワイプを途中でやめただけで誤って開くようになる。 */}
+              {/* 定量タスク：数値（タップ編集可）＋全幅バー。期限は右端の期限ピルへ一本化した。 */}
+              {task.type === 'quantitative' && <QuantitativeProgress task={task} />}
+
+              {/* 繰り返し / リマインダー（アイコン付き・1行にまとめる） */}
+              {(recurrenceLabel || reminderLabel) && (
+                <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[0.75rem] text-slate-500 dark:text-slate-400">
+                  {recurrenceLabel && (
+                    <span className="inline-flex items-center gap-1">
+                      <Repeat aria-hidden className="h-3 w-3" />
+                      {recurrenceLabel}
+                    </span>
+                  )}
+                  {recurrenceLabel && reminderLabel && <span aria-hidden>·</span>}
+                  {reminderLabel && (
+                    <span className="inline-flex items-center gap-1">
+                      <Bell aria-hidden className="h-3 w-3" />
+                      <span className="sr-only">リマインダー </span>
+                      {reminderLabel}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* プロジェクトラベル（従来どおり） */}
+              {showProjectLabel && task.project_name && (
+                <div className="mt-0.5 text-[0.6875rem] text-slate-400">{task.project_name}</div>
+              )}
+            </div>
+          </div>
+
+          {/* サブタスクの進捗と開閉。**展開の導線はこのボタンだけにする。**
+              カード面のタップはスワイプ（横）と長押しドラッグ（@dnd-kit）の起点を兼ねており、
+              そこへ展開を足すと、スワイプを途中でやめただけで誤って開くようになる。 */}
+          {subtasks && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={`サブタスク ${subtasks.length} 件中 ${doneCount} 件完了。${expanded ? '折りたたむ' : '展開する'}`}
+              onTouchStart={stopCardDrag}
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
+              className={[
+                'mt-0.5 shrink-0 self-start inline-flex items-center gap-0.5 rounded-full py-0.5 pl-1.5 pr-0.5',
+                'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
+                'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
+                completed ? 'opacity-60' : '',
+              ].join(' ')}
+            >
+              {doneCount}/{subtasks.length}
+              <ChevronDown
+                aria-hidden
+                className={[
+                  'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
+                  expanded ? 'rotate-180' : '',
+                ].join(' ')}
+              />
+            </button>
+          )}
+
+          {/* 期限ピル（本文の右・三点メニューの左）。期限は表示専用メタデータ。
+              カレンダーアイコンで「期限」だと一目で分かるようにする（リマインダーの Bell と語彙を分ける）。 */}
+          {due &&
+            (hideMenu ? (
+              <span
+                className={[
+                  'mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
+                  'text-[0.75rem] tabular-nums whitespace-nowrap',
+                  dueToneClass,
+                  completed ? 'opacity-60' : '',
+                ].join(' ')}
+              >
+                <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
+                <span className="sr-only">期限 </span>
+                {due.text}
+              </span>
+            ) : (
+              <button
+                type="button"
+                aria-label="期限を変更"
+                onTouchStart={stopCardDrag}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDueSheetOpen(true);
+                }}
+                className={[
+                  'relative mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
+                  'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
+                  // 当たり判定を縦にわずかに広げる（見た目は不変）
+                  "before:absolute before:-inset-y-1.5 before:-inset-x-0.5 before:content-['']",
+                  dueToneClass,
+                  dueToneHoverClass,
+                  completed ? 'opacity-60' : '',
+                ].join(' ')}
+              >
+                <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
+                {due.text}
+              </button>
+            ))}
+
+          {!hideMenu && (
+            <div ref={menuRef} className="relative">
+              <button
+                type="button"
+                aria-label="メニュー"
+                onTouchStart={stopCardDrag}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                className="p-2 -m-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
+              >
+                <MoreVertical className="h-[1.125rem] w-[1.125rem]" />
+              </button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full mt-1 z-50 min-w-[150px] origin-top-right menu-in rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]"
+                >
+                  {/* 期限なし・非繰り返しのみ「期限を設定」を出す（期限ありは右ピルから、繰り返しは排他のため出さない） */}
+                  {task.due_date === null && !task.recurrence_rule && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setDueSheetOpen(true);
+                      }}
+                    >
+                      <CalendarPlus aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                      期限を設定
+                    </button>
+                  )}
+                  {/* スワイプを唯一の操作経路にしない。延期もスワイプと同じ条件でここに出す。 */}
+                  {canSnooze && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setSnoozeSheetOpen(true);
+                      }}
+                    >
+                      <Clock aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                      延期
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onEdit?.(task);
+                    }}
+                  >
+                    <Pencil aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+                    編集
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmDelete(true);
+                    }}
+                  >
+                    <Trash2 aria-hidden className="h-4 w-4" />
+                    削除
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {/* /1 行目 */}
+
+        {/* サブタスクのチェックリスト。カードの幅いっぱい（チェックボックスの幅ぶん字下げ）を
+            使い、1 行目の本文列の幅に縛られない。
+            grid-template-rows の 0fr→1fr で、中身の高さを測らずに開閉できる。
+            畳んだ状態でも DOM に残すことで、閉じる側もアニメーションする。
+            並び順の変化ではないため useFlipReorder（listRef 直下の data-task-id を見る）
+            は走らず、下のカードはこの高さ変化に自然に追従する。 */}
         {subtasks && (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`サブタスク ${subtasks.length} 件中 ${doneCount} 件完了。${expanded ? '折りたたむ' : '展開する'}`}
-            onTouchStart={stopCardDrag}
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded((v) => !v);
-            }}
+          <div
             className={[
-              'mt-0.5 shrink-0 self-start inline-flex items-center gap-0.5 rounded-full py-0.5 pl-1.5 pr-0.5',
-              'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
-              'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800',
-              completed ? 'opacity-60' : '',
+              'grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none',
+              expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
             ].join(' ')}
           >
-            {doneCount}/{subtasks.length}
-            <ChevronDown
-              aria-hidden
-              className={[
-                'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
-                expanded ? 'rotate-180' : '',
-              ].join(' ')}
-            />
-          </button>
-        )}
-
-        {/* 期限ピル（本文の右・三点メニューの左）。期限は表示専用メタデータ。
-            カレンダーアイコンで「期限」だと一目で分かるようにする（リマインダーの Bell と語彙を分ける）。 */}
-        {due &&
-          (hideMenu ? (
-            <span
-              className={[
-                'mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
-                'text-[0.75rem] tabular-nums whitespace-nowrap',
-                dueToneClass,
-                completed ? 'opacity-60' : '',
-              ].join(' ')}
-            >
-              <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
-              <span className="sr-only">期限 </span>
-              {due.text}
-            </span>
-          ) : (
-            <button
-              type="button"
-              aria-label="期限を変更"
-              onTouchStart={stopCardDrag}
-              onClick={(e) => {
-                e.stopPropagation();
-                setDueSheetOpen(true);
-              }}
-              className={[
-                'relative mt-0.5 shrink-0 self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5',
-                'text-[0.75rem] tabular-nums whitespace-nowrap transition-colors',
-                // 当たり判定を縦にわずかに広げる（見た目は不変）
-                "before:absolute before:-inset-y-1.5 before:-inset-x-0.5 before:content-['']",
-                dueToneClass,
-                dueToneHoverClass,
-                completed ? 'opacity-60' : '',
-              ].join(' ')}
-            >
-              <CalendarClock aria-hidden className="h-3 w-3 shrink-0" />
-              {due.text}
-            </button>
-          ))}
-
-        {!hideMenu && (
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              aria-label="メニュー"
-              onTouchStart={stopCardDrag}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-              className="p-2 -m-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400"
-            >
-              <MoreVertical className="h-[1.125rem] w-[1.125rem]" />
-            </button>
-            {menuOpen && (
+            <div className="overflow-hidden">
+              {/* pl-9 = チェックボックス（h-6 w-6）+ gap-3。本文の左端に揃える。
+                  完了タスクは 1 行目のチェック＋本文と同じく薄くする。 */}
               <div
-                role="menu"
-                className="absolute right-0 top-full mt-1 z-50 min-w-[150px] origin-top-right menu-in rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-lg py-1 text-[0.9375rem]"
+                className={[
+                  'pl-9 transition-opacity duration-300',
+                  completed ? 'opacity-60' : 'opacity-100',
+                ].join(' ')}
               >
-                {/* 期限なし・非繰り返しのみ「期限を設定」を出す（期限ありは右ピルから、繰り返しは排他のため出さない） */}
-                {task.due_date === null && !task.recurrence_rule && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setDueSheetOpen(true);
-                    }}
-                  >
-                    <CalendarPlus aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                    期限を設定
-                  </button>
-                )}
-                {/* スワイプを唯一の操作経路にしない。延期もスワイプと同じ条件でここに出す。 */}
-                {canSnooze && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      setSnoozeSheetOpen(true);
-                    }}
-                  >
-                    <Clock aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                    延期
-                  </button>
-                )}
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onEdit?.(task);
-                  }}
-                >
-                  <Pencil aria-hidden className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                  編集
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setConfirmDelete(true);
-                  }}
-                >
-                  <Trash2 aria-hidden className="h-4 w-4" />
-                  削除
-                </button>
+                {/* 畳んでいる間も DOM に残る（閉じる側もアニメーションさせるため）ので、
+                    expanded を渡して中のボタンを tab 順から外させる。 */}
+                <SubtaskList
+                  taskId={task.id}
+                  subtasks={subtasks}
+                  accent={accent}
+                  expanded={expanded}
+                />
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
