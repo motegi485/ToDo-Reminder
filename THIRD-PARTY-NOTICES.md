@@ -37,13 +37,13 @@
 | `react-router` | 6.30.6 | MIT |
 | `react-router-dom` | 6.30.6 | MIT |
 | `scheduler` | 0.23.2 | MIT |
-| `workbox-core` | 7.4.0 | MIT |
-| `workbox-expiration` | 7.4.0 | MIT |
-| `workbox-navigation-preload` | 7.4.0 | MIT |
-| `workbox-precaching` | 7.4.0 | MIT |
-| `workbox-routing` | 7.4.0 | MIT |
-| `workbox-strategies` | 7.4.0 | MIT |
-| `workbox-window` | 7.4.0 | MIT |
+| `workbox-core` | 7.4.1 | MIT |
+| `workbox-expiration` | 7.4.1 | MIT |
+| `workbox-navigation-preload` | 7.4.1 | MIT |
+| `workbox-precaching` | 7.4.1 | MIT |
+| `workbox-routing` | 7.4.1 | MIT |
+| `workbox-strategies` | 7.4.1 | MIT |
+| `workbox-window` | 7.4.1 | MIT |
 
 ## B. Cloudflare Workers にデプロイされるパッケージ
 
@@ -1216,7 +1216,7 @@ SOFTWARE.
 
 ---
 
-## [A] workbox-core v7.4.0
+## [A] workbox-core v7.4.1
 
 License: **MIT**
 
@@ -1248,7 +1248,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-expiration v7.4.0
+## [A] workbox-expiration v7.4.1
 
 License: **MIT**
 
@@ -1280,7 +1280,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-navigation-preload v7.4.0
+## [A] workbox-navigation-preload v7.4.1
 
 License: **MIT**
 
@@ -1312,7 +1312,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-precaching v7.4.0
+## [A] workbox-precaching v7.4.1
 
 License: **MIT**
 
@@ -1344,7 +1344,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-routing v7.4.0
+## [A] workbox-routing v7.4.1
 
 License: **MIT**
 
@@ -1376,7 +1376,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-strategies v7.4.0
+## [A] workbox-strategies v7.4.1
 
 License: **MIT**
 
@@ -1408,7 +1408,7 @@ THE SOFTWARE.
 
 ---
 
-## [A] workbox-window v7.4.0
+## [A] workbox-window v7.4.1
 
 License: **MIT**
 
