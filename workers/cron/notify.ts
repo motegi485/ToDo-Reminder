@@ -1,6 +1,11 @@
 import type { Env } from '../lib/cors';
 import { sendWebPush } from '../lib/webpush';
-import { nextReminderAfter, parseRecurrenceType, periodStartMs } from '../lib/recurrence';
+import {
+  isBeforePeriodEnd,
+  nextReminderAfter,
+  parseRecurrenceType,
+  periodStartMs,
+} from '../lib/recurrence';
 import { CHUNK_SIZE, chunk } from '../lib/chunk';
 import { LIMITS } from '../lib/constants';
 import { isAllowedSyncCode, sanitizeNotificationText } from '../lib/guard';
@@ -45,8 +50,8 @@ interface StaleRow {
 // 全 cron 実行がこの予算内に収まることは、現行実装では保証していない。
 //
 // 予算に収まらなかった候補は claim せずに見送る。候補クエリの窓は繰り返しで
-// RETRY_GRACE_SEC + 60 秒、単発で ONESHOT_CATCHUP_SEC + 60 秒あるので、次の分以降の
-// 実行で拾われる（取りこぼしではなく先送り）。
+// LATE_SEND_MAX_SEC + 60 秒（ただし周期の境界まで）、単発で ONESHOT_CATCHUP_SEC + 60 秒あるので、
+// 次の分以降の実行で拾われる（取りこぼしではなく先送り。見送りが続いて周期が明けた繰り返しは送られない）。
 const CRON_D1_BUDGET = 45;
 const CRON_FETCH_BUDGET = 45;
 
@@ -57,6 +62,16 @@ const RETRY_GRACE_SEC = 600;
 // エフォートで分が飛ぶことがあり、従来は飛んだ分のリマインダーが永久に失われた。
 // 24 時間以内なら未送信（sent_reminders 未記録）のものを拾って送る。
 const ONESHOT_CATCHUP_SEC = 86400;
+// 繰り返しリマインダーを「遅れても送る」上限（2026-11-02 に追加）。
+//
+// 仕様は「リマインド時刻の時点でその周期内に未完了なら送る」。以前は候補窓が
+// RETRY_GRACE_SEC + 60 秒しかなく、Cron が 11 分を超えて止まるとその周期の通知は
+// 送られないまま stale 回収で次周期へ進んでいた。いまは次の両方を満たす間だけ送る:
+//   - リマインド時刻から LATE_SEND_MAX_SEC 以内（古すぎる通知は役に立たないため 3 時間で打ち切る）
+//   - その周期の終わりの境界（reminder_time + reminder_offset）より前（翌周期に前周期の通知を出さない）
+// RETRY_GRACE_SEC + 60 秒を過ぎてから送るものは、タイトルで遅れたことを示す。
+const LATE_SEND_MAX_SEC = 3 * 3600;
+const LATE_TITLE = 'リマインダー（遅れて通知）';
 
 function iso(sec: number): string {
   return new Date(sec * 1000).toISOString();
@@ -92,8 +107,11 @@ export async function handleNotifyCron(
   // サーバーは status を触らず「復活しているはずのタスク」への送信だけを行う
   // （実質未完了かどうかは下の periodStartMs 判定で見る）。
   //
-  // 窓の下限は RETRY_GRACE_SEC ぶん過去まで広げ、送信が一時失敗して claim を
-  // 取り下げたリマインダーを毎分再試行する。NOT EXISTS(sent_reminders) は
+  // 窓の下限は LATE_SEND_MAX_SEC ぶん過去まで広げる。RETRY_GRACE_SEC 以内は送信が
+  // 一時失敗して claim を取り下げたリマインダーの毎分再試行、それより古いものは Cron が
+  // 止まっていた間のリマインダーで、同じ周期のうちに限って「遅れて通知」として送る
+  // （判定は下の候補処理。周期が明けていれば送らず、stale 回収が前進させる）。
+  // 新しい順に並べ、予算が足りないときは時刻どおりのものを先に送る。NOT EXISTS(sent_reminders) は
   // 送信済みを候補から外すための足切りで、真の二重送信ガードは後段の
   // INSERT OR IGNORE による claim。
   const recurring = await env.DB.prepare(
@@ -106,9 +124,10 @@ export async function handleNotifyCron(
        AND t.reminder_time <= ?
        AND NOT EXISTS (SELECT 1 FROM sent_reminders s
                        WHERE s.task_id = t.id AND s.reminder_time = t.reminder_time)
-       AND EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.sync_code = t.sync_code)`,
+       AND EXISTS (SELECT 1 FROM push_subscriptions p WHERE p.sync_code = t.sync_code)
+     ORDER BY t.reminder_time DESC`,
   )
-    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC), windowEnd)
+    .bind(iso(nowSec - 60 - LATE_SEND_MAX_SEC), windowEnd)
     .all<NotifyRow>();
 
   // 単発リマインダーは 24 時間まで遡って未送信を回収する（Cron の分飛び対策）。
@@ -195,6 +214,24 @@ export async function handleNotifyCron(
     (async () => {
       const settled = await Promise.allSettled(
         candidates.map(async (task) => {
+          // 時刻どおりの窓（RETRY_GRACE_SEC + 60 秒）より古い繰り返しは「遅れて通知」。
+          // 周期が明けていたら送らない（前周期の通知を翌周期に出すと誤通知になる）。
+          // offset / tz が無い旧行は周期を判定できないので遅延送信の対象にしない。
+          const late =
+            task.recurrence_rule != null &&
+            task.reminder_time <= iso(nowSec - 60 - RETRY_GRACE_SEC);
+          if (late) {
+            const reminderMs = Date.parse(task.reminder_time);
+            if (
+              task.reminder_offset == null ||
+              task.tz_offset == null ||
+              Number.isNaN(reminderMs) ||
+              !isBeforePeriodEnd(reminderMs, task.reminder_offset, nowSec * 1000)
+            ) {
+              return;
+            }
+          }
+
           // 完了済みの繰り返しタスクは「完了した期間より後の期間」のリマインダーだけ送る。
           // 完了時刻（updated_at）がリマインダーの属する期間の開始より前なら、境界を
           // 跨いで実質未完了へ復活しているので通知する。同じ期間内に完了済みなら
@@ -245,7 +282,7 @@ export async function handleNotifyCron(
               result: await sendWebPush(
                 sub.subscription,
                 {
-                  title: 'リマインダー',
+                  title: late ? LATE_TITLE : 'リマインダー',
                   // 制御文字を潰し長さを切り詰める。Web Push の暗号化ペイロードは
                   // 実質 4,096 バイトが上限で、超えると Push サービスが 413 を返す。
                   // 413 は再試行しても直らないまま毎分の再送に化けるため、
@@ -265,8 +302,8 @@ export async function handleNotifyCron(
           }
 
           // 1 台にも届かず、かつ一時失敗（'failed'）が含まれる場合は claim を取り下げて
-          // 次分の実行で再試行する（繰り返しは RETRY_GRACE_SEC、単発は
-          // ONESHOT_CATCHUP_SEC の窓内）。全滅が expired / permanent のみなら
+          // 次分の実行で再試行する（繰り返しは周期の境界か LATE_SEND_MAX_SEC の早いほうまで、
+          // 単発は ONESHOT_CATCHUP_SEC の窓内。RETRY_GRACE_SEC を過ぎた再試行は「遅れて通知」になる）。全滅が expired / permanent のみなら
           // 再試行しても届かないので claim は残す（'permanent' を再試行対象に
           // 含めていたため、413 のような直らない失敗が単発では最大 1,440 回の
           // 再送になっていた）。一部の端末にだけ届いた場合は配信済みとして
@@ -359,7 +396,8 @@ export async function handleNotifyCron(
      ORDER BY t.reminder_time
      LIMIT ?`,
   )
-    .bind(iso(nowSec - 60 - RETRY_GRACE_SEC), staleLimit)
+    // 下限は候補クエリと同じ位置（I-10）。遅れて送れる間の行を先回りして前進させない。
+    .bind(iso(nowSec - 60 - LATE_SEND_MAX_SEC), staleLimit)
     .all<StaleRow>();
 
   ctx.waitUntil(

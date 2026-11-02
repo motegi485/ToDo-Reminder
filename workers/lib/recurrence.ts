@@ -100,3 +100,12 @@ export function nextReminderAfter(
   } while (ms <= afterMs && guard < 4000);
   return new Date(ms).toISOString();
 }
+
+/**
+ * このリマインダーが属する周期がまだ終わっていないか（`nowMs` が周期の終わりの境界より前か）。
+ * reminder_time + offset = その周期の終わりの境界（ローカル 0:00）なので、tz_offset を使わずに判定できる。
+ * Cron が止まって遅れたリマインダーを「同じ周期のうちなら送る」判定に使う（notify.ts）。
+ */
+export function isBeforePeriodEnd(reminderMs: number, offsetMin: number, nowMs: number): boolean {
+  return nowMs < reminderMs + offsetMin * 60_000;
+}

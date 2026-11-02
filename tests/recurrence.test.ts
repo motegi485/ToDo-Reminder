@@ -17,7 +17,7 @@ import {
   recurrenceReminderTime,
   reviveUpdatedAt,
 } from '../src/lib/recurrence.ts';
-import { nextReminderAfter, periodStartMs } from '../workers/lib/recurrence.ts';
+import { isBeforePeriodEnd, nextReminderAfter, periodStartMs } from '../workers/lib/recurrence.ts';
 
 const jst = (s: string): number => Date.parse(`${s}+09:00`);
 
@@ -80,4 +80,12 @@ test('サーバーの前進とクライアントの計算は JST で 3 年分一
       cur = next;
     }
   }
+});
+
+// ── F11: Cron が止まって遅れた繰り返しは「同じ周期のうち」だけ送る ─────────────────
+test('isBeforePeriodEnd: 周期の境界より前だけ true（毎日 23:00 = 境界 1 時間前）', () => {
+  const reminder = jst('2026-11-02T23:00:00');
+  assert.equal(isBeforePeriodEnd(reminder, 60, jst('2026-11-02T23:40:00')), true);
+  assert.equal(isBeforePeriodEnd(reminder, 60, jst('2026-11-03T00:00:00')), false); // 境界ちょうどは翌周期
+  assert.equal(isBeforePeriodEnd(reminder, 60, jst('2026-11-03T00:10:00')), false);
 });
