@@ -97,7 +97,7 @@ export function jsonBodyErrorResponse(
  * 適用できないため、この allowlist が唯一の実効的な入口制御になる。
  *
  * **未設定（空）のときは全許可**（従来動作）。設定漏れで自分自身を締め出す事故の
- * ほうが、限定公開の運用では痛いため。運用上は必ず設定すること（README 参照）。
+ * ほうが、限定公開の運用では痛いため。運用上は必ず設定すること（docs/security.md・docs/operations.md 参照）。
  */
 export function isAllowedSyncCode(env: Env, syncCode: string): boolean {
   const allowed = parseAllowedSyncCodes(env);
