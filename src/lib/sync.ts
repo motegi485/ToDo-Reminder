@@ -101,11 +101,29 @@ async function pushInChunks(
   return outcome;
 }
 
-async function pull(syncCode: string): Promise<void> {
-  const lastSyncedAt = storage.getLastSyncedAt();
+/**
+ * 応答を取り込む直前に、同期コードが要求時から変わっていないかを確かめる。
+ *
+ * 別タブで同期コードを切り替えた場合、このタブの排他（runExclusive）は効かない
+ * （localStorage と IndexedDB はタブ間で共有、ロックはタブごと）。旧コードの pull 応答が
+ * 切替の `db.tasks.clear()` の後に着地すると、旧コードの行が新コードの端末へ混ざり、
+ * カーソルも旧コードの値で上書きされる（2026-11-02 に再現）。その応答は捨てる。
+ */
+function isStillCurrentCode(syncCode: string): boolean {
+  return storage.getSyncCode() === syncCode;
+}
+
+/**
+ * @param full true なら pull カーソルを無視して全量を取り直す（push が conflicts を返したとき）。
+ */
+async function pull(syncCode: string, { full = false }: { full?: boolean } = {}): Promise<void> {
+  const lastSyncedAt = full ? 0 : storage.getLastSyncedAt();
   const { tasks: serverTasks, cursor } = await api.syncPull(syncCode, lastSyncedAt);
 
+  let applied = false;
   await db.transaction('rw', db.tasks, async () => {
+    if (!isStillCurrentCode(syncCode)) return;
+    applied = true;
     for (const serverTask of serverTasks) {
       const local = await db.tasks.get(serverTask.id);
       // 同値（updated_at が 1ms も違わない別編集）はサーバーを勝ちにする。
@@ -117,24 +135,55 @@ async function pull(syncCode: string): Promise<void> {
     }
   });
 
+  if (!applied) {
+    console.warn('[sync] discarded a pull response for a sync code that is no longer current');
+    return;
+  }
   // lastSyncedAt はサーバー採番の server_seq ウォーターマーク（pull 専用カーソル）。
+  // 全量 pull でも返る cursor は「実在する最大 seq」なので、そのまま保存してよい。
   storage.setLastSyncedAt(cursor);
 }
 
-/** 送れなかった（別コード所有の）件数を返す。呼び出し側がステータスへ載せる。 */
-async function push(syncCode: string, since: number): Promise<number> {
+/**
+ * 送れなかった（別コード所有の）件数と、サーバーのほうが新しくて書けなかった件数を返す。
+ */
+async function push(
+  syncCode: string,
+  since: number,
+): Promise<{ skipped: number; conflicts: number }> {
   const allTasks = await db.tasks.where('sync_code').equals(syncCode).toArray();
   const changed = allTasks.filter((t) => t.updated_at > since);
-  if (changed.length === 0) return 0;
+  if (changed.length === 0) return { skipped: 0, conflicts: 0 };
 
-  const { skipped } = await pushInChunks(syncCode, changed);
+  const { skipped, conflicts } = await pushInChunks(syncCode, changed);
   // 通常同期での skipped はテナント分離チェックに引っかかった異常系
   // （典型的には switchSyncCode の移行が一部だけ完了した後の恒久的な取りこぼし）。
   // サイレントに失われ続けると気づけないため可視化する。
   if (skipped > 0) {
     showToast('一部のタスクが同期できませんでした。他端末との同期をやり直してください', 'warn');
   }
-  return skipped;
+  return { skipped, conflicts };
+}
+
+/**
+ * push カーソル（lastPushedAt）より古い updated_at で書いた行を、次回の push に含めるための下限。
+ * 実行中の push が最後にカーソルを pushNow − 1 へ進めても、この値より先へは進めない。
+ */
+let pushFloor: number | null = null;
+
+/**
+ * `updatedAt` で書いた行を次回の push で必ず送る（push カーソルをその直前まで戻す）。
+ *
+ * 繰り返しタスクの復活は、他端末の今周期の編集に負けるよう updated_at を「周期の開始」に
+ * 寄せて書く（recurrence.ts の reviveUpdatedAt）。その値は、起動直後の同期で進んだ
+ * push カーソルより古いことが多く、そのままでは `updated_at > since` の抽出に載らず
+ * サーバーへ届かない。カーソルはクライアント時計のまま戻すだけなので [I-2] の分離は保たれ、
+ * 余分に再送される行は upsert の冪等性で害が無い。
+ */
+export function ensurePushedFrom(updatedAt: number): void {
+  const floor = updatedAt - 1;
+  pushFloor = pushFloor === null ? floor : Math.min(pushFloor, floor);
+  if (storage.getLastPushedAt() > floor) storage.setLastPushedAt(floor);
 }
 
 // 「同期コードが未登録（403）」の案内は繰り返しても直しようがないため 1 回だけ出す。
@@ -220,7 +269,49 @@ function isNotAllowed(result: StepResult): boolean {
   return !result.ok && result.error instanceof ApiError && result.error.status === 403;
 }
 
-export async function runSync(): Promise<void> {
+/* ------------------------------------------------------------------ *
+ * 排他制御
+ *
+ * 同期（runSync）と同期コード切替（switchSyncCode）は同じタブの中で重ねて走らせない。
+ * 以前は再入ガードが無く、通常の同期の pull 応答が切替の `db.tasks.clear()` の後に着地すると、
+ * 旧コードの行が新コードの端末へ混ざり、**この端末自身のタスクまで旧コード名義に戻って
+ * 以後 push されなくなる**状態が作れた（2026-11-02 に 2 端末ハーネスで再現。docs/sync.md）。
+ * ------------------------------------------------------------------ */
+
+let exclusiveTail: Promise<unknown> = Promise.resolve();
+
+/** 前の排他処理が終わってから fn を実行する（成功・失敗を問わず次へ進む）。 */
+function runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+  const result = exclusiveTail.then(fn, fn);
+  exclusiveTail = result.catch(() => {});
+  return result;
+}
+
+let syncInFlight: Promise<void> | null = null;
+let syncRerunRequested = false;
+
+/**
+ * 同期を 1 回行う。実行中・待機中に呼ばれた分は 1 回にまとめ、いま走っている回が
+ * 終わった直後にもう 1 回だけ走らせる（その間の編集を取りこぼさないため）。
+ * 返す Promise は、まとめた分も含めて同期が一段落したときに解決する。
+ */
+export function runSync(): Promise<void> {
+  if (syncInFlight) {
+    syncRerunRequested = true;
+    return syncInFlight;
+  }
+  syncInFlight = runExclusive(async () => {
+    do {
+      syncRerunRequested = false;
+      await runSyncOnce();
+    } while (syncRerunRequested);
+  }).finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+async function runSyncOnce(): Promise<void> {
   if (!navigator.onLine) {
     setStatus({ state: 'error', errorKind: 'offline' });
     return;
@@ -246,10 +337,14 @@ export async function runSync(): Promise<void> {
   // 片方向の同期停止に陥っていた。しかもユーザーには 5 分ごとのトーストしか見えず、
   // 原因も回避策も分からない状態だった。
   let pushSkipped = 0;
+  let pushConflicts = 0;
   const pushResult = await step(async () => {
+    // この回より前に要求された下限は、既に storage のカーソルへ反映済み（ensurePushedFrom）。
+    // ここから先に来た要求だけを、最後のカーソル保存で尊重する。
+    pushFloor = null;
     const pushSince = storage.getLastPushedAt();
     const pushNow = Date.now();
-    pushSkipped = await push(syncCode, pushSince);
+    ({ skipped: pushSkipped, conflicts: pushConflicts } = await push(syncCode, pushSince));
     // 全チャンク成功したときだけカーソルを進める（途中失敗時は次回に全量再送）。
     //
     // 1ms 引くのは、push 対象のスナップショット（toArray）を取った後・ここに来る前に
@@ -257,14 +352,20 @@ export async function runSync(): Promise<void> {
     // `updated_at > since` なので、pushNow をそのまま入れるとその編集は二度と送られない。
     // 1ms 戻しても、境界の行がもう一度送られるだけ（upsert は冪等）。
     // 端末の時計が巻き戻った場合もカーソルが先へ行き過ぎないので同時に緩和される。
-    storage.setLastPushedAt(pushNow - 1);
+    // push 中に ensurePushedFrom が呼ばれていたら、その下限より先へは進めない。
+    storage.setLastPushedAt(pushFloor === null ? pushNow - 1 : Math.min(pushNow - 1, pushFloor));
   });
 
   // 403 は「このコードは許可リストに無い」なので pull も同じ結果になる。
   // 無駄な 1 リクエストを避けるためここで打ち切る。
+  //
+  // push が conflicts（サーバーのほうが新しい）を返したら、その回は全量 pull する。
+  // 差分 pull だけでは、その行を既に pull 済み（server_seq ≦ カーソル）のとき二度と届かず、
+  // 時計がずれた端末ではサーバーに拒否された値を持ち続けて永久に食い違う（2026-11-02 に再現）。
+  // conflicts は「他端末の編集との競合」か「時計ずれ」でしか出ないので、通常は発生しない。
   const pullResult = isNotAllowed(pushResult)
     ? pushResult
-    : await step(() => pull(syncCode));
+    : await step(() => pull(syncCode, { full: pushConflicts > 0 }));
 
   if (pushResult.ok && pullResult.ok) {
     const now = Date.now();
@@ -321,7 +422,15 @@ interface SwitchSyncCodeResult {
   visible: number;
 }
 
-export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCodeResult> {
+/**
+ * 同期コードを切り替える。通常の同期（runSync）とは排他で実行する
+ * （実行中の同期が終わるのを待ってから始め、切替中に来た同期は切替後の新コードで走る）。
+ */
+export function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCodeResult> {
+  return runExclusive(() => switchSyncCodeExclusive(newSyncCode));
+}
+
+async function switchSyncCodeExclusive(newSyncCode: string): Promise<SwitchSyncCodeResult> {
   notAllowedNotified = false;
   const oldSyncCode = storage.getSyncCode();
   const currentTasks = await db.tasks.toArray();
@@ -394,7 +503,9 @@ export async function switchSyncCode(newSyncCode: string): Promise<SwitchSyncCod
 
   storage.setLastSyncedAt(cursor);
   // 取り込んだ行は既にサーバー上にある。以後の push は「切替後の編集」だけが対象。
+  // 切替前に要求された下限は、消したローカル行のものなので捨てる。
   const now = Date.now();
+  pushFloor = null;
   storage.setLastPushedAt(now);
 
   // ここまで来た時点で全量 push と全量 pull が成功している。前のコードで出ていた

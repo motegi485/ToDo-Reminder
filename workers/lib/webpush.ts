@@ -29,6 +29,15 @@ export type SendResult = 'ok' | 'expired' | 'permanent' | 'failed';
  * 逆に 'permanent' を 'failed' に含めていたため、413 のような直らない失敗が
  * 毎分の再試行に化けていた（単発リマインダーは最大 24 時間 = 1,440 回）。
  */
+/** ログ用。endpoint からホスト名だけを取り出す（解釈できなければ伏せ字）。 */
+function endpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host || '(none)';
+  } catch {
+    return '(unparsable)';
+  }
+}
+
 export async function sendWebPush(
   subscriptionJson: string,
   payload: PushPayload,
@@ -50,7 +59,8 @@ export async function sendWebPush(
   // 登録された任意の URL が残っていれば、この fetch が毎分そこへ POST し続ける。
   // 'expired' を返すと呼び出し側（cron）が行ごと削除するので、残存行は自動的に片付く。
   if (!isAllowedPushEndpoint(subscription.endpoint)) {
-    console.warn(`[webpush] dropping subscription with disallowed endpoint: ${subscription.endpoint}`);
+    // endpoint は端末宛ての capability URL なので全文をログへ出さない（ホスト名だけで足りる）。
+    console.warn(`[webpush] dropping subscription with disallowed endpoint host: ${endpointHost(subscription.endpoint)}`);
     return 'expired';
   }
 

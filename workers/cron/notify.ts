@@ -3,7 +3,7 @@ import { sendWebPush } from '../lib/webpush';
 import { nextReminderAfter, parseRecurrenceType, periodStartMs } from '../lib/recurrence';
 import { CHUNK_SIZE, chunk } from '../lib/chunk';
 import { LIMITS } from '../lib/constants';
-import { sanitizeNotificationText } from '../lib/guard';
+import { isAllowedSyncCode, sanitizeNotificationText } from '../lib/guard';
 
 interface NotifyRow {
   id: string;
@@ -127,7 +127,20 @@ export async function handleNotifyCron(
     .bind(iso(nowSec - 60 - ONESHOT_CATCHUP_SEC), windowEnd)
     .all<NotifyRow>();
 
-  const candidates = [...recurring.results, ...oneShot.results];
+  // allowlist（ALLOWED_SYNC_CODES）から外したコードには送らない。
+  //
+  // 以前は API だけが allowlist を見ており、Cron は D1 に残った行と購読へ送り続けていた。
+  // 利用者を外しても、その端末にはタスク名入りの通知が届き、Cron の予算も消費し続ける。
+  // 判定はメモリ上（isolate 内キャッシュ）なので D1 文も外部 fetch も増えない。
+  // 外したコードの繰り返し行は、送らないまま下の stale 回収で通常どおり前進する
+  // （ORDER BY reminder_time LIMIT の先頭に溜まって他の行の回収を止めることはない）。
+  const fetched = [...recurring.results, ...oneShot.results];
+  const candidates = fetched.filter((t) => isAllowedSyncCode(env, t.sync_code));
+  if (candidates.length < fetched.length) {
+    console.warn(
+      `[notify] ${fetched.length - candidates.length} candidate(s) skipped: sync code not in ALLOWED_SYNC_CODES`,
+    );
+  }
 
   // 予算の消費量。上の候補クエリ 2 本を消費済みとして数え始める。
   let d1Used = 2;

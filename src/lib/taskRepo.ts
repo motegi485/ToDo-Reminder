@@ -1,7 +1,12 @@
 import { db } from './db';
 import { storage } from './storage';
-import { futureRecurrenceReminderTime, isPeriodElapsed, recurrenceReminderTime } from './recurrence';
-import { scheduleSync } from './sync';
+import {
+  futureRecurrenceReminderTime,
+  isPeriodElapsed,
+  recurrenceReminderTime,
+  reviveUpdatedAt,
+} from './recurrence';
+import { ensurePushedFrom, scheduleSync } from './sync';
 import { taskOrderKey } from './sort';
 import { normalizeColor } from './taskColors';
 import { projectNameError } from './validation';
@@ -670,6 +675,8 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
 export async function reviveRecurringTasks(now: number = Date.now()): Promise<number> {
   let revived = 0;
   let dirty = false;
+  // 書いた updated_at の最小値。push カーソルより古ければ、次回 push に含めるよう要求する。
+  let minWritten: number | null = null;
   await db.transaction('rw', db.tasks, async () => {
     const tasks = await db.tasks
       .filter((t) => t.recurrence_rule != null && t.status !== 'deleted')
@@ -678,6 +685,9 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
       const rule = t.recurrence_rule!;
       const next: Task = { ...t };
       let changed = false;
+      // updated_at の付け方を決めるための内訳（下の `if (changed)` を参照）。
+      let statusRevived = false;
+      let tzUpdated = false;
 
       if (t.status === 'completed' && isPeriodElapsed(t.updated_at, now, rule.type)) {
         next.status = 'active';
@@ -689,6 +699,7 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
         const list = normalizeSubtasks(next.subtasks);
         if (list !== null) next.subtasks = list.map((s) => ({ ...s, done: false }));
         changed = true;
+        statusRevived = true;
         revived++;
       }
 
@@ -700,6 +711,7 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
         if (tzChanged) {
           next.tz_offset = tz;
           changed = true;
+          tzUpdated = true;
         }
         // 過去方向へは巻き戻さない: 作成・編集時に次周期へ繰り延べた値や、サーバーが
         // 送信後に前進させた値を現在期間の値へ戻すと、「保存直後の意図しない通知」が
@@ -726,12 +738,21 @@ export async function reviveRecurringTasks(now: number = Date.now()): Promise<nu
       }
 
       if (changed) {
-        next.updated_at = Date.now();
+        // 周期由来の変更は「周期の開始時刻」を下限にした値で書く（reviveUpdatedAt のコメント）。
+        // 前日から開いていない端末が、他端末の今周期の完了を LWW で上書きして消すのを防ぐ。
+        //  - 復活（completed → active）を含む回は必ずこちら。状態の巻き戻しが実際の完了に勝ってはいけない
+        //  - TZ が変わった回（端末の移動・DST）で復活を含まないものは、従来どおり現在時刻で書く。
+        //    周期開始の値は push カーソルより古いことがあり、送られないと DST 補正がサーバーへ届かない
+        next.updated_at =
+          tzUpdated && !statusRevived ? Date.now() : reviveUpdatedAt(t.updated_at, now, rule.type);
         await db.tasks.put(next);
         dirty = true;
+        minWritten = minWritten === null ? next.updated_at : Math.min(minWritten, next.updated_at);
       }
     }
   });
+  // 周期の開始に寄せた updated_at は push カーソルより古いことがある。送り漏れないようにする。
+  if (minWritten !== null) ensurePushedFrom(minWritten);
   if (dirty) scheduleSync();
   return revived;
 }

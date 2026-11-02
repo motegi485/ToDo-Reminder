@@ -1,5 +1,6 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 
 interface Props {
   open: boolean;
@@ -11,6 +12,10 @@ interface Props {
 }
 
 export function Modal({ open, onClose, children, ariaLabel, footer }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  // フォーカスをパネルへ移し、Tab を閉じ込め、閉じたら元へ戻す（aria-modal だけでは抜ける）。
+  useDialogFocus(open, panelRef);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -42,7 +47,9 @@ export function Modal({ open, onClose, children, ariaLabel, footer }: Props) {
     >
       {footer ? (
         <div
-          className="m-4 flex h-[85vh] max-h-[640px] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl transition-transform dark:bg-slate-900"
+          ref={panelRef}
+          tabIndex={-1}
+          className="m-4 flex h-[85vh] max-h-[640px] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none transition-transform dark:bg-slate-900"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="min-h-0 flex-1 overflow-auto">{children}</div>
@@ -52,7 +59,9 @@ export function Modal({ open, onClose, children, ariaLabel, footer }: Props) {
         </div>
       ) : (
         <div
-          className="w-full max-w-lg max-h-[90vh] overflow-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl m-4 transition-transform"
+          ref={panelRef}
+          tabIndex={-1}
+          className="w-full max-w-lg max-h-[90vh] overflow-auto bg-white dark:bg-slate-900 rounded-2xl shadow-xl m-4 transition-transform outline-none"
           onClick={(e) => e.stopPropagation()}
         >
           {children}

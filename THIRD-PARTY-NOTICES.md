@@ -24,7 +24,7 @@
 | `@dnd-kit/core` | 6.3.1 | MIT |
 | `@dnd-kit/sortable` | 10.0.0 | MIT |
 | `@dnd-kit/utilities` | 3.2.2 | MIT |
-| `@remix-run/router` | 1.23.2 | MIT |
+| `@remix-run/router` | 1.23.4 | MIT |
 | `dexie` | 4.4.2 | Apache-2.0 |
 | `dexie-react-hooks` | 1.1.7 | Apache-2.0 |
 | `js-tokens` | 4.0.0 | MIT |
@@ -34,8 +34,8 @@
 | `qrcode-generator` | 2.0.4 | MIT |
 | `react` | 18.3.1 | MIT |
 | `react-dom` | 18.3.1 | MIT |
-| `react-router` | 6.30.3 | MIT |
-| `react-router-dom` | 6.30.3 | MIT |
+| `react-router` | 6.30.6 | MIT |
+| `react-router-dom` | 6.30.6 | MIT |
 | `scheduler` | 0.23.2 | MIT |
 | `workbox-core` | 7.4.0 | MIT |
 | `workbox-expiration` | 7.4.0 | MIT |
@@ -190,7 +190,7 @@ SOFTWARE.
 
 ---
 
-## [A] @remix-run/router v1.23.2
+## [A] @remix-run/router v1.23.4
 
 License: **MIT**
 
@@ -1114,7 +1114,7 @@ SOFTWARE.
 
 ---
 
-## [A] react-router v6.30.3
+## [A] react-router v6.30.6
 
 License: **MIT**
 
@@ -1148,7 +1148,7 @@ SOFTWARE.
 
 ---
 
-## [A] react-router-dom v6.30.3
+## [A] react-router-dom v6.30.6
 
 License: **MIT**
 

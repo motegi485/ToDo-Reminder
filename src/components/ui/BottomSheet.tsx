@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogFocus } from '@/hooks/useDialogFocus';
 
 interface Props {
   open: boolean;
@@ -38,6 +39,9 @@ export function BottomSheet({ open, onClose, children, ariaLabel, footer }: Prop
   const fullHeightRef = useRef(0); // 全画面まで広げたときの高さ
   const snapRef = useRef<'content' | 'full'>('content'); // 現在のスナップ状態
   const closingRef = useRef(false); // 下スワイプで閉じるアニメ中フラグ
+
+  // フォーカスをパネルへ移し、Tab を閉じ込め、閉じたら元へ戻す（aria-modal だけでは抜ける）。
+  useDialogFocus(open, panelRef);
 
   useEffect(() => {
     if (!open) return;
@@ -170,7 +174,8 @@ export function BottomSheet({ open, onClose, children, ariaLabel, footer }: Prop
     >
       <div
         ref={panelRef}
-        className="flex max-h-full w-full flex-col overflow-hidden bg-white dark:bg-slate-900 rounded-t-2xl shadow-xl transition-[height] ease-sheet duration-300"
+        tabIndex={-1}
+        className="flex max-h-full w-full flex-col overflow-hidden bg-white dark:bg-slate-900 rounded-t-2xl shadow-xl outline-none transition-[height] ease-sheet duration-300"
         onClick={(e) => e.stopPropagation()}
         onTransitionEnd={(e) => {
           if (closingRef.current && e.propertyName === 'height') onClose();

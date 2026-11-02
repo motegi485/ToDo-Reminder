@@ -40,6 +40,24 @@ function nextBoundary(reference: number, type: RecurrenceType): Date {
   return d;
 }
 
+/**
+ * 周期由来の書き換え（復活・リマインダーの現周期への前進）で書く `updated_at`。
+ *
+ * `Date.now()` を使ってはいけない。前日から開いていない端末は、他端末が**今周期に**した編集
+ * （とくに完了）をまだ pull していない。そこで現在時刻を付けて書くと、LWW でその古い行が勝ち、
+ * 他端末の完了を全端末から消してしまう（2026-11-02 に 2 端末で再現。docs/invariants.md I-1）。
+ *
+ * 周期の開始時刻を下限にすると、
+ *  - 今周期に誰かが行った実際の編集（完了・タイトル変更など）には必ず負ける
+ *  - 前の周期の状態（昨日の完了など）には勝つ ＝ 本来の復活として伝播する
+ *  - 同じ周期に複数端末が復活させた場合は同値になり、サーバーの同値受理で収束する
+ * `+ 1` は、今周期に入ってから編集済みの行（updated_at が周期開始より後）でも
+ * 値を必ず進めるため（変更を push の対象にする）。
+ */
+export function reviveUpdatedAt(previousUpdatedAt: number, now: number, type: RecurrenceType): number {
+  return Math.max(previousUpdatedAt + 1, startOfPeriod(new Date(now), type).getTime());
+}
+
 /** completedAt の期間より now の期間が後ろなら、復活すべき。 */
 export function isPeriodElapsed(completedAt: number, now: number, type: RecurrenceType): boolean {
   return startOfPeriod(new Date(now), type).getTime() > startOfPeriod(new Date(completedAt), type).getTime();
