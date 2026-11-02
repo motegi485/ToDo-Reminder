@@ -70,8 +70,8 @@ export default defineConfig({
     // API URL・運用設定・同期コード allowlist が晒される経路になりうる。
     // 実機確認で LAN が要るときだけ `npm run dev:lan`（= vite --host）を使う。
     fs: {
-      // **列挙すると既定値を置き換える**（Vite 6 の既定も同じ
-      // ['.env', '.env.*', '*.{crt,pem}']）ので、既定も明示して書く。
+      // **列挙すると既定値を置き換える**（Vite 6 の既定は
+      // ['.env', '.env.*', '*.{crt,pem}', '**/.git/**']）ので、既定も明示して書く。
       deny: [
         '.env',
         '.env.*',
