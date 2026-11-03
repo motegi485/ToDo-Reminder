@@ -42,7 +42,7 @@ function describeCameraError(err: unknown): string {
  *
  * **このコンポーネントは同期を実行しない。** 読み取った値を `onDetected` で返すだけで、
  * 実際の切り替えは呼び出し側が既存の確認ダイアログ → `switchSyncCode()` の経路で行う
- * （switchSyncCode() の保全ロジックを迂回しないため。docs/sync.md を参照）。
+ * （switchSyncCode() の保全ロジックを迂回しないため。project_knowledge/modules/sync.md を参照）。
  *
  * 映像は端末内の <canvas> で処理するだけで、どこにも送信しない。
  */

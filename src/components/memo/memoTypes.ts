@@ -5,7 +5,7 @@ import type { MemoType } from '@/types';
  * メモの種類ごとの表示・入力定義。
  *
  * 種類はクライアント専用の概念で、サーバーは memo_type を解釈しない
- * （color と同じ素通し扱い。docs/invariants.md I-6）。種類を増やすときは
+ * （color と同じ素通し扱い。project_knowledge/architecture/invariants.md I-6）。種類を増やすときは
  * ここに 1 行足すだけでよく、サーバー側の変更は不要。
  */
 export interface MemoTypeDef {

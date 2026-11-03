@@ -25,5 +25,5 @@ ALLOWED_ORIGIN = "<https://your-app.pages.dev>"
 #
 # **空のままにすると全許可**（設定漏れで自分を締め出さないための後方互換）。
 # 利用者を追加する手順: 端末でコードを発行 → ここに追記 → `npx wrangler deploy`
-# 外したコードのデータは D1 に残る。外して 30 日後に手動で削除する（docs/operations.md「利用者を外すとき」）。
+# 外したコードのデータは D1 に残る。外して 30 日後に手動で削除する（project_knowledge/operations/runbook.md「利用者を外すとき」）。
 ALLOWED_SYNC_CODES = ""

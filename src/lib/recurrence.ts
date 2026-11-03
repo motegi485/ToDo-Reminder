@@ -45,7 +45,7 @@ function nextBoundary(reference: number, type: RecurrenceType): Date {
  *
  * `Date.now()` を使ってはいけない。前日から開いていない端末は、他端末が**今周期に**した編集
  * （とくに完了）をまだ pull していない。そこで現在時刻を付けて書くと、LWW でその古い行が勝ち、
- * 他端末の完了を全端末から消してしまう（2026-11-02 に 2 端末で再現。docs/invariants.md I-1）。
+ * 他端末の完了を全端末から消してしまう（2026-11-02 に 2 端末で再現。project_knowledge/architecture/invariants.md I-1）。
  *
  * 周期の開始時刻を下限にすると、
  *  - 今周期に誰かが行った実際の編集（完了・タイトル変更など）には必ず負ける

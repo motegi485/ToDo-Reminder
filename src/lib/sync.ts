@@ -275,7 +275,7 @@ function isNotAllowed(result: StepResult): boolean {
  * 同期（runSync）と同期コード切替（switchSyncCode）は同じタブの中で重ねて走らせない。
  * 以前は再入ガードが無く、通常の同期の pull 応答が切替の `db.tasks.clear()` の後に着地すると、
  * 旧コードの行が新コードの端末へ混ざり、**この端末自身のタスクまで旧コード名義に戻って
- * 以後 push されなくなる**状態が作れた（2026-11-02 に 2 端末ハーネスで再現。docs/sync.md）。
+ * 以後 push されなくなる**状態が作れた（2026-11-02 に 2 端末ハーネスで再現。project_knowledge/modules/sync.md）。
  * ------------------------------------------------------------------ */
 
 let exclusiveTail: Promise<unknown> = Promise.resolve();

@@ -97,7 +97,7 @@ function buildTask(input: TaskInput, base?: Task): Task {
     // ここを抜かすと、いずれこの版が「旧クライアント」になったとき、フォームからの保存が
     // 未知の列をリクエストから落とし、サーバーの [I-17]（キー省略 = 既存値保持）に
     // 頼りきりになる。同期は行オブジェクトをそのまま送るので、他の変更関数のように
-    // `{ ...existing }` で組み立てていれば列は勝手に往復する（docs/sync.md）。
+    // `{ ...existing }` で組み立てていれば列は勝手に往復する（project_knowledge/modules/sync.md）。
     ...base,
     id: base?.id ?? generateId(),
     sync_code: base?.sync_code ?? syncCode(),
@@ -214,7 +214,7 @@ export async function deleteTask(id: string): Promise<void> {
  *
  * **繰り返しタスクには使わない。** 繰り返しの `reminder_time` は「周期境界 − offset」から
  * 導出される値なので、手動の値を入れても `reviveRecurringTasks()` とサーバー Cron の前進計算に
- * 上書きされて延期が消える（docs/recurrence.md）。呼び出し側で導線を隠しているが、
+ * 上書きされて延期が消える（project_knowledge/modules/recurrence.md）。呼び出し側で導線を隠しているが、
  * 防御的にここでも no-op にする。
  */
 export async function snoozeTask(id: string, at: string): Promise<Task | null> {
@@ -658,7 +658,7 @@ export async function setQuantitativeValue(id: string, value: number): Promise<T
       const revived = existing.status === 'completed' && sanitized < existing.target_value;
       if (revived) task.status = 'active';
       await db.tasks.put(task);
-      // 完了が退いたなら完了ログも対にして取り下げる（docs/frontend.md の 4 経路のひとつ）。
+      // 完了が退いたなら完了ログも対にして取り下げる（project_knowledge/modules/frontend.md の 4 経路のひとつ）。
       if (revived) await removeLatestCompletion(id);
     }
   });

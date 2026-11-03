@@ -28,3 +28,6 @@ wrangler.toml
 
 # D1 manual export (contains real user data)
 backup-*.sql
+
+# Private internal docs: a separate Git repository (ToDo-Reminder-knowledge), never tracked here
+/project_knowledge/

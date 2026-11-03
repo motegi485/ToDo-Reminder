@@ -32,7 +32,7 @@ export default function App() {
     //
     // しばらく開いていなかった端末は、他端末が今周期にした完了・編集をまだ持っていない。
     // その古い行のまま復活させて push すると、LWW で他端末の完了を消してしまう
-    // （2026-11-02 に 2 端末で再現。docs/invariants.md I-1）。復活の updated_at を周期の開始に
+    // （2026-11-02 に 2 端末で再現。project_knowledge/architecture/invariants.md I-1）。復活の updated_at を周期の開始に
     // 寄せる対策（reviveUpdatedAt）と二重にしてあり、オフライン起動では従来どおりすぐ復活させる。
     let lastVisibleSyncAt = 0;
     const syncThenRun = () => {

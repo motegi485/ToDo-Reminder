@@ -12,7 +12,7 @@ interface Props {
 /**
  * 同期コードの QR を表示する。**QR に載せるのは同期コードの生文字列だけ**で、
  * URL は載せない（同期コードは bearer credential なので、履歴・Referer・
- * アクセスログに残る経路を作らない。docs/security.md を参照）。
+ * アクセスログに残る経路を作らない。project_knowledge/architecture/security.md を参照）。
  */
 export function SyncQrCode({ value }: Props) {
   const [matrix, setMatrix] = useState<QrMatrix | null>(null);

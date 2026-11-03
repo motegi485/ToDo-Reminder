@@ -9,7 +9,7 @@
 --
 -- 代償は LWW の粒度が親行単位になること。2 端末が同時に別々の子をチェックすると、
 -- 後勝ちで片方のチェックが消える。「2 台を日常的に使うが同じタスクを同時には触らない」
--- という利用実態を確認したうえで受け入れている（docs/data-model.md）。
+-- という利用実態を確認したうえで受け入れている（project_knowledge/architecture/data-model.md）。
 --
 -- 形式は recurrence_rule と同じ JSON 文字列。
 --   '[{"id":"<uuid>","title":"住所変更","done":true}, ...]'

@@ -12,7 +12,7 @@
 - **A. ブラウザへ配信されるもの** — `dist/assets/*.js` / `dist/sw.js`。Cloudflare Pages から一般に配信される。
 - **B. Cloudflare Workers にデプロイされるもの** — API サーバー。JavaScript そのものはエンドユーザーへ配信されない。
 
-再生成を自動化するスクリプトは無い。依存を追加・更新したら、`docs/operations.md` の「依存ライセンスの更新」に従ってこのファイルも更新すること。
+再生成を自動化するスクリプトは無い。依存を追加・更新したら、`project_knowledge/operations/runbook.md` の「依存ライセンスの更新」に従ってこのファイルも更新すること。
 
 ---
 

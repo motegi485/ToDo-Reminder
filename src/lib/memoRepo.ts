@@ -10,7 +10,7 @@ import type { MemoType, Task } from '@/types';
  *
  * メモはタスクと同じ `tasks` ストア／D1 テーブルの行で、`kind === 'memo'` だけが違う。
  * こうすることで push / pull・LWW・プロジェクト分け・同期コード切替が
- * まったく無改造でそのまま効く（詳細は docs/data-model.md）。
+ * まったく無改造でそのまま効く（詳細は project_knowledge/architecture/data-model.md）。
  *
  * メモ行が常に満たす条件:
  *  - `status` は 'active'（完了の概念が無い）。削除時のみ 'deleted' へ。

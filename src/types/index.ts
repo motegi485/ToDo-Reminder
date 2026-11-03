@@ -48,7 +48,7 @@ export interface CompletionLog {
    * （＝繰り返しタスクの完了だけを記録していた時代）で、内訳では未分類（「その他」）に寄せる。
    *
    * 集計時に `task_id` から現在の `tasks` を引かない理由: プロジェクトは `project_name` の
-   * 文字列一致による派生表示（invariants.md I-6）なので、リネームすると過去の内訳が丸ごと
+   * 文字列一致による派生表示（project_knowledge/architecture/invariants.md I-6）なので、リネームすると過去の内訳が丸ごと
    * 書き換わってしまう。タスクを削除しても内訳から消えないのも同じ理由（完了した事実は動かない）。
    */
   project_name?: string | null;

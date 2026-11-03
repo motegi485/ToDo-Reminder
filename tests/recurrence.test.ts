@@ -4,7 +4,7 @@
 //
 // 対象は import を持たない純粋関数だけに限っている（src/lib/recurrence.ts は型 import のみ、
 // workers/lib/recurrence.ts は import なし）。`@/` エイリアスや Dexie を使うモジュールは
-// ここでは読めないので、同期・Cron の結合シナリオは docs/local-verification.md の手順で確認する。
+// ここでは読めないので、同期・Cron の結合シナリオは project_knowledge/operations/local-verification.md の手順で確認する。
 //
 // 時刻はローカル時刻に依存するため、TZ をファイル先頭で固定する（Date を使う前に設定すること）。
 process.env.TZ = 'Asia/Tokyo';
